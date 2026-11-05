@@ -18,13 +18,14 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import User
+from app.models import Suggestion, User, Vote, Word
 from app.schemas_auth import (
     GoogleOAuthRequest,
     LoginRequest,
@@ -204,6 +205,120 @@ async def get_me(
     # ── Update last_seen_at (cheap write, no commit needed if
     #    we're okay with it being best-effort) ────────────────
     return UserResponse.model_validate(current_user)
+
+
+# ═══════════════════════════════════════════════════════════════
+# PATCH /api/auth/me — update profile (display name)
+# ═══════════════════════════════════════════════════════════════
+
+
+class UpdateProfileRequest(BaseModel):
+    """Update the current user's profile."""
+
+    display_name: str | None = Field(None, max_length=50)
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_me(
+    req: UpdateProfileRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update the current user's display name.
+
+    Only display_name is editable in v1. Email and password changes
+    come later.
+    """
+    if req.display_name is not None:
+        current_user.display_name = req.display_name.strip() or None
+
+    await db.commit()
+    await db.refresh(current_user)
+
+    return UserResponse.model_validate(current_user)
+
+
+# ═══════════════════════════════════════════════════════════════
+# GET /api/auth/me/stats — contribution stats
+# ═══════════════════════════════════════════════════════════════
+
+
+class UserStatsResponse(BaseModel):
+    """Contribution stats for the current user."""
+
+    words_added: int = 0
+    suggestions_submitted: int = 0
+    suggestions_accepted: int = 0
+    suggestions_open: int = 0
+    suggestions_rejected: int = 0
+    votes_cast: int = 0
+
+
+@router.get("/me/stats", response_model=UserStatsResponse)
+async def get_my_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get contribution stats for the current user."""
+    from sqlalchemy import func as sa_func
+
+    # Words created by this user (source='user', created_by_user_id)
+    words_added = await db.scalar(
+        select(sa_func.count())
+        .select_from(User)
+        .join(Word, Word.created_by_user_id == current_user.id)
+        .where(Word.source == "user", Word.status == "live")
+    ) or 0
+
+    # Suggestions
+    sugg_total = await db.scalar(
+        select(sa_func.count())
+        .select_from(Suggestion)
+        .where(Suggestion.created_by_user_id == current_user.id)
+    ) or 0
+
+    sugg_accepted = await db.scalar(
+        select(sa_func.count())
+        .select_from(Suggestion)
+        .where(
+            Suggestion.created_by_user_id == current_user.id,
+            Suggestion.status == "accepted",
+        )
+    ) or 0
+
+    sugg_open = await db.scalar(
+        select(sa_func.count())
+        .select_from(Suggestion)
+        .where(
+            Suggestion.created_by_user_id == current_user.id,
+            Suggestion.status == "open",
+        )
+    ) or 0
+
+    sugg_rejected = await db.scalar(
+        select(sa_func.count())
+        .select_from(Suggestion)
+        .where(
+            Suggestion.created_by_user_id == current_user.id,
+            Suggestion.status == "rejected",
+        )
+    ) or 0
+
+    # Votes cast
+    votes_cast = await db.scalar(
+        select(sa_func.count())
+        .select_from(Vote)
+        .where(Vote.user_id == current_user.id)
+    ) or 0
+
+    return UserStatsResponse(
+        words_added=words_added,
+        suggestions_submitted=sugg_total,
+        suggestions_accepted=sugg_accepted,
+        suggestions_open=sugg_open,
+        suggestions_rejected=sugg_rejected,
+        votes_cast=votes_cast,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════

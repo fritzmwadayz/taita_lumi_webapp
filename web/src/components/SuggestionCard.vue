@@ -51,9 +51,10 @@
     </p>
 
     <!-- Vote counts (clickable — needs auth) -->
-    <div class="flex items-center gap-2 pt-3 border-t border-cream-200" @click.prevent="onVoteClick">
+    <!-- @click.prevent on the container stops RouterLink navigation -->
+    <div class="flex items-center gap-2 pt-3 border-t border-cream-200" @click.prevent>
       <button
-        @click.stop="vote('up')"
+        @click.prevent="vote('up')"
         :disabled="voting || !canVote"
         :class="['vote-pill', 'vote-up', suggestion.user_vote === 'up' && 'voted']"
         :title="canVote ? 'Vote up' : 'Sign in to vote'"
@@ -64,7 +65,7 @@
         {{ suggestion.upvotes }}
       </button>
       <button
-        @click.stop="vote('down')"
+        @click.prevent="vote('down')"
         :disabled="voting || !canVote"
         :class="['vote-pill', 'vote-down', suggestion.user_vote === 'down' && 'voted']"
         :title="canVote ? 'Vote down' : 'Sign in to vote'"
@@ -147,11 +148,6 @@ function timeAgo(iso) {
   if (days < 7) return `${days}d ago`;
   if (days < 30) return `${Math.floor(days / 7)}w ago`;
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function onVoteClick() {
-  // Clicking the vote row shouldn't navigate to the detail page
-  // — handled by @click.prevent on the container
 }
 
 async function vote(voteType) {

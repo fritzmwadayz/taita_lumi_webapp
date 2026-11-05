@@ -75,6 +75,25 @@ export async function fetchMe() {
 }
 
 /**
+ * Update the current user's profile (display name).
+ * @param {string|null} displayName
+ * @returns {Promise<UserResponse>}
+ */
+export async function updateMe(displayName) {
+  const res = await api.patch("/api/auth/me", { display_name: displayName });
+  return res.data;
+}
+
+/**
+ * Get contribution stats for the current user.
+ * @returns {Promise<{words_added: number, suggestions_submitted: number, suggestions_accepted: number, suggestions_open: number, suggestions_rejected: number, votes_cast: number}>}
+ */
+export async function fetchMyStats() {
+  const res = await api.get("/api/auth/me/stats");
+  return res.data;
+}
+
+/**
  * Logout (server returns 204, client discards tokens).
  * @returns {Promise<void>}
  */
