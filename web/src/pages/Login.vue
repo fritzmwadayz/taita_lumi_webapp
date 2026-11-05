@@ -77,13 +77,57 @@
           {{ error }}
         </div>
 
+        <!-- Loading overlay (shown during Google OAuth verification) -->
+        <div
+          v-if="googleLoading"
+          class="bg-forest/5 border border-forest/20 rounded-lg p-4 mb-4 flex items-center gap-3"
+        >
+          <svg
+            class="w-5 h-5 text-forest animate-spin flex-shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              class="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              stroke-width="4"
+            ></circle>
+            <path
+              class="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            ></path>
+          </svg>
+          <div>
+            <p class="text-sm font-medium text-forest-dark">Signing you in…</p>
+            <p class="text-xs text-stone">Verifying with Google</p>
+          </div>
+        </div>
+
         <!-- OAuth -->
         <div
-          v-if="googleClientId"
+          v-if="googleClientId && !googleLoading"
           id="google-button-container"
           class="mb-3 flex justify-center"
         ></div>
-        <p v-else class="text-[10px] text-stone-light text-center mb-3 italic">
+        <div
+          v-else-if="googleLoading"
+          class="mb-3 flex justify-center"
+        >
+          <div
+            class="flex items-center gap-2 px-4 py-2.5 border border-cream-300 rounded-lg text-sm font-medium text-stone-light bg-cream-50"
+          >
+            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Google sign-in…
+          </div>
+        </div>
+        <p v-if="!googleClientId" class="text-[10px] text-stone-light text-center mb-3 italic">
           Google sign-in not configured (set VITE_GOOGLE_CLIENT_ID)
         </p>
 
@@ -134,11 +178,20 @@
           <button
             type="submit"
             :disabled="loading"
-            class="w-full bg-forest hover:bg-forest-dark text-cream font-semibold text-sm py-3 rounded-lg transition disabled:opacity-50"
+            class="w-full bg-forest hover:bg-forest-dark text-cream font-semibold text-sm py-3 rounded-lg transition disabled:opacity-50 flex items-center justify-center gap-2"
           >
+            <svg
+              v-if="loading"
+              class="w-4 h-4 animate-spin"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
             {{ loading
-              ? "Please wait..."
-              : activeTab === "login" ? "Log in" : "Create account" }}
+              ? (activeTab === "login" ? "Logging in…" : "Creating account…")
+              : (activeTab === "login" ? "Log in" : "Create account") }}
           </button>
         </form>
 
@@ -176,6 +229,7 @@ const password = ref("");
 const displayName = ref("");
 const error = ref("");
 const loading = ref(false);
+const googleLoading = ref(false);
 
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
@@ -202,14 +256,14 @@ function renderGoogleButton() {
 async function handleGoogleCallback(response) {
   // response.credential is the Google ID token
   error.value = "";
-  loading.value = true;
+  googleLoading.value = true;
   try {
     await authStore.loginWithGoogle(response.credential);
     redirectToNext();
   } catch (err) {
     error.value = err.response?.data?.detail || "Google sign-in failed.";
   } finally {
-    loading.value = false;
+    googleLoading.value = false;
   }
 }
 
