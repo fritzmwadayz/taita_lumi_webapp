@@ -28,13 +28,16 @@ from app.models import AnonymousSession
 
 # ── Rate limit config ─────────────────────────────────────────
 RATE_LIMIT_WINDOW = 3600  # 1 hour in seconds
-RATE_LIMIT_PER_SESSION = 5  # max 5 suggestions per hour per anon session
-RATE_LIMIT_PER_IP = 10  # max 10 suggestions per hour per IP
+RATE_LIMIT_PER_ANON_SESSION = 5  # max 5 suggestions per hour per anon session
+RATE_LIMIT_PER_ANON_IP = 10  # max 10 suggestions per hour per IP
+RATE_LIMIT_PER_REGISTERED_USER = 15  # max 15 suggestions per hour per registered non-reviewer
 
 # ── In-memory rate limit store ────────────────────────────────
-# Keyed by session_id (UUID) or IP hash, value is list of timestamps
+# Keyed by session_id (UUID) or user_id (UUID) or IP hash
+# Value is list of timestamps
 _session_attempts: dict[UUID, list[float]] = defaultdict(list)
 _ip_attempts: dict[str, list[float]] = defaultdict(list)
+_user_attempts: dict[UUID, list[float]] = defaultdict(list)
 
 
 def _prune_old(attempts: list[float], window: int = RATE_LIMIT_WINDOW) -> list[float]:
@@ -52,19 +55,19 @@ def check_rate_limit(session_id: UUID, ip_hash: str) -> None:
 
     # ── Per-session check ─────────────────────────────────────
     _session_attempts[session_id] = _prune_old(_session_attempts[session_id])
-    if len(_session_attempts[session_id]) >= RATE_LIMIT_PER_SESSION:
+    if len(_session_attempts[session_id]) >= RATE_LIMIT_PER_ANON_SESSION:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=(
-                f"Rate limit exceeded: max {RATE_LIMIT_PER_SESSION} suggestions per hour. "
-                "Sign in for unlimited suggestions."
+                f"Rate limit exceeded: max {RATE_LIMIT_PER_ANON_SESSION} suggestions per hour. "
+                "Sign in for a higher limit."
             ),
             headers={"Retry-After": str(RATE_LIMIT_WINDOW)},
         )
 
     # ── Per-IP check ──────────────────────────────────────────
     _ip_attempts[ip_hash] = _prune_old(_ip_attempts[ip_hash])
-    if len(_ip_attempts[ip_hash]) >= RATE_LIMIT_PER_IP:
+    if len(_ip_attempts[ip_hash]) >= RATE_LIMIT_PER_ANON_IP:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Rate limit exceeded for this IP address.",
@@ -74,6 +77,27 @@ def check_rate_limit(session_id: UUID, ip_hash: str) -> None:
     # ── Record the attempt ────────────────────────────────────
     _session_attempts[session_id].append(now)
     _ip_attempts[ip_hash].append(now)
+
+
+def check_registered_user_rate_limit(user_id: UUID) -> None:
+    """Check if a registered non-reviewer user has exceeded the rate limit.
+
+    Raises 429 if exceeded. Reviewers and admins are unlimited.
+    """
+    now = time.time()
+
+    _user_attempts[user_id] = _prune_old(_user_attempts[user_id])
+    if len(_user_attempts[user_id]) >= RATE_LIMIT_PER_REGISTERED_USER:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"Rate limit exceeded: max {RATE_LIMIT_PER_REGISTERED_USER} suggestions per hour. "
+                "Become a reviewer for unlimited suggestions."
+            ),
+            headers={"Retry-After": str(RATE_LIMIT_WINDOW)},
+        )
+
+    _user_attempts[user_id].append(now)
 
 
 def _hash_cookie(cookie_value: str) -> str:

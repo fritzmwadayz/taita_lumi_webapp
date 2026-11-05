@@ -18,16 +18,17 @@ created_by_user_id set; rate limiting does not apply.
 
 from __future__ import annotations
 
+import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.anon import check_rate_limit, get_or_create_anon_session
+from app.anon import check_rate_limit, check_registered_user_rate_limit, get_or_create_anon_session
 from app.db import get_db
 from app.deps import get_optional_user
-from app.models import AnonymousSession, Suggestion, User, Vote
+from app.models import AnonymousSession, Suggestion, User, Vote, Word
 from app.schemas_suggestion import (
     CreateSuggestionRequest,
     SuggestionListItem,
@@ -46,6 +47,16 @@ router = APIRouter()
 VALID_TARGET_TYPES = {"new_word", "word", "gloss", "example", "relation"}
 
 
+def _normalize_form(text: str) -> str:
+    """Lowercase + strip non-alpha (keep apostrophes). Mirrors export script."""
+    if not text:
+        return ""
+    text = text.lower()
+    text = re.sub(r"[^a-z']", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
 def _validate_suggestion(req: CreateSuggestionRequest) -> None:
     """Validate the suggestion request based on target_type."""
     if req.target_type not in VALID_TARGET_TYPES:
@@ -55,7 +66,6 @@ def _validate_suggestion(req: CreateSuggestionRequest) -> None:
         )
 
     if req.target_type == "new_word":
-        # proposed_value must contain at least a headword
         if not req.proposed_value.get("headword"):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -63,7 +73,6 @@ def _validate_suggestion(req: CreateSuggestionRequest) -> None:
             )
 
     elif req.target_type == "word":
-        # Must have a target_id and field_path
         if not req.target_id:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -73,6 +82,45 @@ def _validate_suggestion(req: CreateSuggestionRequest) -> None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="word corrections must include field_path (e.g. 'headword')",
+            )
+
+    elif req.target_type == "gloss":
+        # Adding a missing translation to an existing word
+        # proposed_value must contain language ('sw' or 'en') and text
+        if not req.target_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="gloss suggestions must include target_id (the word UUID)",
+            )
+        lang = req.proposed_value.get("language")
+        if lang not in ("sw", "en"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="gloss suggestions must include 'language' ('sw' or 'en') in proposed_value",
+            )
+        if not req.proposed_value.get("text"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="gloss suggestions must include 'text' (the translation) in proposed_value",
+            )
+
+    elif req.target_type == "relation":
+        # Linking this word to another word (variation, conjugation, etc.)
+        # proposed_value must contain related_word (headword or ID) and relation_type
+        if not req.target_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="relation suggestions must include target_id (the word UUID)",
+            )
+        if not req.proposed_value.get("related_word"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="relation suggestions must include 'related_word' (headword or ID) in proposed_value",
+            )
+        if not req.proposed_value.get("relation_type"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="relation suggestions must include 'relation_type' in proposed_value",
             )
 
 
@@ -147,21 +195,47 @@ async def create_suggestion(
     """
     _validate_suggestion(req)
 
-    # ── Honeypot check (Phase 3c will add this; stub for now) ─
-    # If proposed_value contains a 'website' field, it's a bot.
+    # ── Honeypot check ────────────────────────────────────────
     if req.proposed_value.get("website"):
-        # Silently accept but don't actually save — looks like success to the bot.
-        # For now, just reject.
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid submission.",
         )
 
-    # ── Resolve the actor ─────────────────────────────────────
+    # ── Duplicate check for new_word suggestions ─────────────
+    # If the word already exists, return 409 with the existing word's ID
+    # so the frontend can show "This word already exists. [See word →]"
+    if req.target_type == "new_word":
+        headword = (req.proposed_value.get("headword") or "").strip()
+        normalized = _normalize_form(headword)
+        if normalized:
+            result = await db.execute(
+                select(Word).where(
+                    Word.normalized_form == normalized,
+                    Word.status == "live",
+                )
+            )
+            existing = result.scalar_one_or_none()
+            if existing is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "message": "This word already exists in the dictionary.",
+                        "existing_word_id": str(existing.id),
+                        "existing_headword": existing.headword,
+                    },
+                )
+
+    # ── Resolve the actor + apply rate limiting ──────────────
     if current_user is not None:
-        # Authenticated contributor — no rate limit
+        # Authenticated user — rate limit depends on role
         created_by_user_id = current_user.id
         created_by_session_id = None
+
+        # Only rate-limit non-reviewer registered users
+        # Reviewers and admins are unlimited
+        if current_user.role == "user":
+            check_registered_user_rate_limit(current_user.id)
     else:
         # Anonymous — need session cookie, create if missing
         x_session_cookie = request.headers.get("X-Session-Cookie")
@@ -171,7 +245,7 @@ async def create_suggestion(
             db, x_session_cookie, ip
         )
 
-        # Rate limit check
+        # Rate limit check (5/hr per session, 10/hr per IP)
         check_rate_limit(session.id, ip_hash)
 
         created_by_user_id = None

@@ -116,11 +116,21 @@ async def get_optional_user(
 
 
 async def require_user(user: User = Depends(get_current_user)) -> User:
-    """Require an authenticated user (contributor or admin)."""
+    """Require an authenticated user (any registered user — user, reviewer, or admin)."""
     return user
 
 
-async def require_admin(user: User = Depends(require_user)) -> User:
+async def require_reviewer(user: User = Depends(get_current_user)) -> User:
+    """Require a reviewer or admin (can add words directly)."""
+    if user.role not in ("reviewer", "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Reviewer access required.",
+        )
+    return user
+
+
+async def require_admin(user: User = Depends(get_current_user)) -> User:
     """Require an admin user."""
     if user.role != "admin":
         raise HTTPException(

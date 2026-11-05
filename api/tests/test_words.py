@@ -197,33 +197,33 @@ async def test_search_empty_query_returns_422(client_with_mock_db):
 
 
 # ═══════════════════════════════════════════════════════════════
-# Tests: POST /api/words — contributor creates a live word
+# Tests: POST /api/words — reviewer creates a live word
 # ═══════════════════════════════════════════════════════════════
 
 
 @pytest.fixture
 async def client_authed(client_with_mock_db, mock_db):
     """HTTP client with a mock authenticated user."""
-    from app.deps import require_user
+    from app.deps import require_reviewer
 
     user = MagicMock(spec=Word)
     user.id = uuid.uuid4()
-    user.email = "contributor@example.com"
-    user.display_name = "contributor"
-    user.role = "contributor"
+    user.email = "reviewer@example.com"
+    user.display_name = "reviewer"
+    user.role = "reviewer"
     user.is_blocked = False
 
     async def override_auth():
         return user
 
-    app.dependency_overrides[require_user] = override_auth
+    app.dependency_overrides[require_reviewer] = override_auth
     return client_with_mock_db
 
 
 @pytest.fixture
 async def client_unauth_word(client_with_mock_db, mock_db):
     """HTTP client with no auth — POST /api/words should 401."""
-    from app.deps import require_user
+    from app.deps import require_reviewer
     from fastapi import HTTPException, status
 
     async def override_auth():
@@ -231,7 +231,7 @@ async def client_unauth_word(client_with_mock_db, mock_db):
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
         )
 
-    app.dependency_overrides[require_user] = override_auth
+    app.dependency_overrides[require_reviewer] = override_auth
     return client_with_mock_db
 
 
@@ -260,6 +260,9 @@ async def test_create_word_duplicate_returns_409(client_authed, mock_db):
     """POST /api/words with existing normalized_form returns 409."""
     # Mock: existing word found (execute returns a result with scalar_one_or_none → existing word)
     existing = MagicMock(spec=Word)
+    existing.id = uuid.uuid4()
+    existing.headword = "mlima"
+    existing.status = "live"
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = existing
     mock_db.execute = AsyncMock(return_value=mock_result)
@@ -270,4 +273,8 @@ async def test_create_word_duplicate_returns_409(client_authed, mock_db):
     )
 
     assert response.status_code == 409
-    assert "already exists" in response.json()["detail"].lower()
+    # Detail is now a structured object with existing_word_id
+    detail = response.json()["detail"]
+    assert isinstance(detail, dict)
+    assert "existing_word_id" in detail
+    assert detail["existing_headword"] == "mlima"

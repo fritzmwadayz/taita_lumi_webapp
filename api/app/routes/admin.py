@@ -26,7 +26,7 @@ from app.models import (
     Word,
     WordRelation,
 )
-from app.promote import _apply_new_word, _apply_word_correction
+from app.promote import _apply_gloss, _apply_new_word, _apply_relation, _apply_word_correction
 from app.schemas_admin import (
     AdminUserListResponse,
     AdminUserResponse,
@@ -222,10 +222,10 @@ async def update_user(
         )
 
     if req.role is not None:
-        if req.role not in ("contributor", "admin"):
+        if req.role not in ("user", "reviewer", "admin"):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Role must be 'contributor' or 'admin'",
+                detail="Role must be 'user', 'reviewer', or 'admin'",
             )
         user.role = req.role
 
@@ -290,6 +290,10 @@ async def decide_suggestion(
             await _apply_new_word(db, suggestion, actor_id=admin.id)
         elif suggestion.target_type == "word":
             await _apply_word_correction(db, suggestion, actor_id=admin.id)
+        elif suggestion.target_type == "gloss":
+            await _apply_gloss(db, suggestion, actor_id=admin.id)
+        elif suggestion.target_type == "relation":
+            await _apply_relation(db, suggestion, actor_id=admin.id)
 
         suggestion.status = "accepted"
         suggestion.applied_at = now

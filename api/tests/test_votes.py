@@ -29,7 +29,7 @@ def make_mock_user(user_id=None) -> MagicMock:
     user.id = user_id or uuid.uuid4()
     user.email = "voter@example.com"
     user.display_name = "voter"
-    user.role = "contributor"
+    user.role = "reviewer"
     user.is_blocked = False
     return user
 

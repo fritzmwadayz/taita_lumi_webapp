@@ -184,6 +184,145 @@ async def _apply_word_correction(
     )
 
 
+async def _apply_gloss(
+    db: AsyncSession, suggestion: Suggestion, actor_id: UUID | None
+) -> None:
+    """Apply a gloss suggestion: add a translation to an existing word.
+
+    proposed_value should contain:
+      - language: 'sw' or 'en'
+      - text: the translation text
+    """
+    if not suggestion.target_id:
+        return
+
+    pv = suggestion.proposed_value
+    language = pv.get("language")
+    text = pv.get("text", "").strip()
+
+    if not language or not text:
+        return
+
+    # ── Check if the word exists ──────────────────────────────
+    result = await db.execute(select(Word).where(Word.id == suggestion.target_id))
+    word = result.scalar_one_or_none()
+    if word is None:
+        return
+
+    # ── Check if a gloss for this language already exists ─────
+    existing = await db.execute(
+        select(Gloss).where(
+            Gloss.word_id == word.id,
+            Gloss.language == language,
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        # A gloss for this language already exists — skip (don't overwrite)
+        return
+
+    # ── Create the gloss ──────────────────────────────────────
+    gloss = Gloss(word_id=word.id, language=language, text=text)
+    db.add(gloss)
+
+    # ── Audit log ─────────────────────────────────────────────
+    db.add(
+        EditLog(
+            actor_user_id=actor_id,
+            action="create",
+            entity_type="gloss",
+            entity_id=word.id,  # we log the word ID for easy lookup
+            after={
+                "language": language,
+                "text": text,
+                "source": "auto-promote",
+                "suggestion_id": str(suggestion.id),
+            },
+        )
+    )
+
+
+async def _apply_relation(
+    db: AsyncSession, suggestion: Suggestion, actor_id: UUID | None
+) -> None:
+    """Apply a relation suggestion: link this word to another word.
+
+    proposed_value should contain:
+      - related_word: headword (string) or word ID (string UUID)
+      - relation_type: 'variant', 'conjugation', 'antonym', 'plural', 'singular', etc.
+    """
+    if not suggestion.target_id:
+        return
+
+    pv = suggestion.proposed_value
+    related_word = pv.get("related_word")
+    relation_type = pv.get("relation_type")
+
+    if not related_word or not relation_type:
+        return
+
+    # ── Find the related word (by ID or by headword/normalized_form) ──
+    related = None
+    # Try as UUID first
+    try:
+        related_id = UUID(str(related_word))
+        result = await db.execute(select(Word).where(Word.id == related_id))
+        related = result.scalar_one_or_none()
+    except (ValueError, AttributeError):
+        pass
+
+    # If not found by ID, try by headword or normalized_form
+    if related is None:
+        normalized = _normalize_form(str(related_word))
+        result = await db.execute(
+            select(Word).where(
+                Word.status == "live",
+                (Word.headword.ilike(str(related_word)))
+                | (Word.normalized_form == normalized),
+            )
+        )
+        related = result.scalar_one_or_none()
+
+    if related is None:
+        # Related word doesn't exist — can't create the relation
+        return
+
+    # ── Check if this relation already exists ─────────────────
+    existing = await db.execute(
+        select(WordRelation).where(
+            WordRelation.from_word_id == suggestion.target_id,
+            WordRelation.to_word_id == related.id,
+            WordRelation.relation_type == relation_type,
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        return  # relation already exists
+
+    # ── Create the relation ───────────────────────────────────
+    relation = WordRelation(
+        from_word_id=suggestion.target_id,
+        to_word_id=related.id,
+        relation_type=relation_type,
+    )
+    db.add(relation)
+
+    # ── Audit log ─────────────────────────────────────────────
+    db.add(
+        EditLog(
+            actor_user_id=actor_id,
+            action="create",
+            entity_type="relation",
+            entity_id=suggestion.target_id,
+            after={
+                "related_word_id": str(related.id),
+                "related_headword": related.headword,
+                "relation_type": relation_type,
+                "source": "auto-promote",
+                "suggestion_id": str(suggestion.id),
+            },
+        )
+    )
+
+
 async def check_and_promote(db: AsyncSession, suggestion: Suggestion) -> bool:
     """Check if a suggestion meets the promote threshold, and apply if so.
 
@@ -199,8 +338,11 @@ async def check_and_promote(db: AsyncSession, suggestion: Suggestion) -> bool:
         await _apply_new_word(db, suggestion, actor_id=None)
     elif suggestion.target_type == "word":
         await _apply_word_correction(db, suggestion, actor_id=None)
+    elif suggestion.target_type == "gloss":
+        await _apply_gloss(db, suggestion, actor_id=None)
+    elif suggestion.target_type == "relation":
+        await _apply_relation(db, suggestion, actor_id=None)
     else:
-        # gloss/example/relation suggestions — not yet supported
         return False
 
     # ── Mark suggestion as accepted + applied ────────────────

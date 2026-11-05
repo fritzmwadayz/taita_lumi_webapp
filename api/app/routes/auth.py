@@ -75,7 +75,7 @@ async def register(
         email=req.email.lower(),
         password_hash=hash_password(req.password),
         display_name=req.display_name,
-        role="contributor",
+        role="user",
         last_seen_at=datetime.now(timezone.utc),
     )
     db.add(user)
@@ -437,7 +437,7 @@ async def login_with_google(
             oauth_provider="google",
             oauth_subject=google_sub,
             display_name=display_name,
-            role="contributor",
+            role="user",
             last_seen_at=datetime.now(timezone.utc),
         )
         db.add(user)

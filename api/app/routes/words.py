@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db import get_db
-from app.deps import require_user
+from app.deps import require_reviewer, require_user
 from app.models import EditLog, Example, Gloss, Suggestion, User, Word, WordRelation
 from app.schemas import (
     GlossOut,
@@ -345,11 +345,11 @@ def _normalize_form(text: str) -> str:
 async def create_word(
     req: CreateWordRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_user),
+    current_user: User = Depends(require_reviewer),
 ):
     """Create a new word that goes live immediately.
 
-    Requires authentication (contributor or admin). The word is created
+    Requires reviewer or admin role. The word is created
     with status='live' and source='user', so it appears in the dictionary
     instantly.
 
@@ -370,13 +370,23 @@ async def create_word(
         )
 
     # ── Check for duplicate ───────────────────────────────────
-    existing = await db.execute(
-        select(Word).where(Word.normalized_form == normalized)
+    # Return the existing word's ID so the frontend can show
+    # "This word already exists. [See word →]"
+    existing_result = await db.execute(
+        select(Word).where(
+            Word.normalized_form == normalized,
+            Word.status == "live",
+        )
     )
-    if existing.scalar_one_or_none() is not None:
+    existing = existing_result.scalar_one_or_none()
+    if existing is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"A word with normalized form '{normalized}' already exists.",
+            detail={
+                "message": "This word already exists in the dictionary.",
+                "existing_word_id": str(existing.id),
+                "existing_headword": existing.headword,
+            },
         )
 
     # ── Create the Word ───────────────────────────────────────

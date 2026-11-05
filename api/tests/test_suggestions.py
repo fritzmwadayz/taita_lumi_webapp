@@ -133,7 +133,7 @@ async def client_authed(client_with_mock_db):
     user.id = uuid.uuid4()
     user.email = "test@example.com"
     user.display_name = "testuser"
-    user.role = "contributor"
+    user.role = "reviewer"
     user.is_blocked = False
 
     async def override_auth():
@@ -150,7 +150,7 @@ async def client_authed(client_with_mock_db):
 
 @pytest.mark.asyncio
 async def test_create_suggestion_new_word_authed(client_authed, mock_db):
-    """Authenticated contributor can create a new_word suggestion."""
+    """Authenticated reviewer can create a new_word suggestion."""
     response = await client_authed.post(
         "/api/suggestions",
         json={
@@ -174,7 +174,7 @@ async def test_create_suggestion_new_word_authed(client_authed, mock_db):
 
 @pytest.mark.asyncio
 async def test_create_suggestion_word_correction_authed(client_authed, mock_db):
-    """Authenticated contributor can suggest a word correction."""
+    """Authenticated reviewer can suggest a word correction."""
     word_id = uuid.uuid4()
     response = await client_authed.post(
         "/api/suggestions",

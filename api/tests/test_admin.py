@@ -34,7 +34,7 @@ def make_mock_admin() -> MagicMock:
     return user
 
 
-def make_mock_user(user_id=None, email="user@example.com", role="contributor") -> MagicMock:
+def make_mock_user(user_id=None, email="user@example.com", role="reviewer") -> MagicMock:
     """Create a mock regular user."""
     user = MagicMock(spec=User)
     user.id = user_id or uuid.uuid4()

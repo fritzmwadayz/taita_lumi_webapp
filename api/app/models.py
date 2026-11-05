@@ -49,7 +49,7 @@ class User(Base):
     oauth_subject: Mapped[str | None] = mapped_column(Text, nullable=True)
     display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     role: Mapped[str] = mapped_column(
-        Text, nullable=False, server_default="contributor"
+        Text, nullable=False, server_default="user"
     )
     is_blocked: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
