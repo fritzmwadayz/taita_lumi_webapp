@@ -14,15 +14,17 @@ const routes = [
     component: () => import("../pages/WordDetail.vue"),
   },
   {
+    path: "/contribute",
+    name: "contribute",
+    component: () => import("../pages/Contribute.vue"),
+  },
+  {
     path: "/suggest",
-    name: "suggest",
-    component: () => import("../pages/Suggest.vue"),
-    meta: { requiresAuth: false }, // anon can suggest
+    redirect: "/contribute",
   },
   {
     path: "/suggestions",
-    name: "suggestions",
-    component: () => import("../pages/Suggestions.vue"),
+    redirect: "/contribute",
   },
   {
     path: "/suggestions/:id",
@@ -41,9 +43,18 @@ const routes = [
     component: () => import("../pages/ReadingGuide.vue"),
   },
   {
+    path: "/support",
+    name: "support",
+    component: () => import("../pages/Support.vue"),
+  },
+  {
     path: "/donate",
-    name: "donate",
-    component: () => import("../pages/Donate.vue"),
+    redirect: "/support",
+  },
+  {
+    path: "/contact",
+    name: "contact",
+    component: () => import("../pages/Contact.vue"),
   },
   {
     path: "/me",

@@ -96,12 +96,37 @@ export async function searchWords(q, limit = 20) {
 
 /**
  * Create a new word that goes live immediately.
- * Requires authentication (contributor or admin).
+ * Requires reviewer or admin role.
  *
  * @param {Object} data - { headword, part_of_speech?, noun_class?, dialect?, literal_translation?, morphology_notes?, swahili_gloss?, english_gloss? }
  * @returns {Promise<WordDetail>} The created word with glosses
  */
 export async function createWord(data) {
   const res = await api.post("/api/words", data);
+  return res.data;
+}
+
+/**
+ * Edit an existing word's fields. Requires reviewer or admin role.
+ * Only provided fields are updated.
+ *
+ * @param {string} id - Word UUID
+ * @param {Object} data - { headword?, part_of_speech?, noun_class?, dialect?, literal_translation?, morphology_notes?, swahili_gloss?, english_gloss? }
+ * @returns {Promise<WordDetail>} The updated word
+ */
+export async function editWord(id, data) {
+  const res = await api.patch(`/api/words/${id}`, data);
+  return res.data;
+}
+
+/**
+ * Delete (hide) a word. Admin only.
+ * The word is soft-deleted (status='hidden'), not removed from the database.
+ *
+ * @param {string} id - Word UUID
+ * @returns {Promise<Object>} { id, status }
+ */
+export async function deleteWord(id) {
+  const res = await api.post(`/api/admin/words/${id}/hide`);
   return res.data;
 }

@@ -84,3 +84,15 @@ export async function removeVote(id) {
   const res = await api.delete(`/api/suggestions/${id}/vote`);
   return res.data;
 }
+
+/**
+ * Reviewer/admin accepts or rejects a suggestion.
+ * Accepting applies it to the word graph immediately.
+ * @param {string} id - Suggestion ID
+ * @param {string} decision - 'accept' or 'reject'
+ * @returns {Promise<Object>} { id, status, decided_at, decided_by }
+ */
+export async function decideSuggestion(id, decision) {
+  const res = await api.post(`/api/suggestions/${id}/decide`, { decision });
+  return res.data;
+}

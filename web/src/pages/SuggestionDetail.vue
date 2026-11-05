@@ -132,6 +132,31 @@
       <section class="py-8 border-b border-cream-200">
         <h2 class="text-xs font-semibold uppercase tracking-widest text-stone mb-6">Community votes</h2>
 
+        <!-- Reviewer/admin decide buttons -->
+        <div
+          v-if="authStore.isReviewer && suggestion.status === 'open'"
+          class="bg-forest/5 border border-forest/20 rounded-lg p-4 mb-4"
+        >
+          <p class="text-xs font-semibold text-forest-dark mb-3">Reviewer actions</p>
+          <div class="flex gap-2">
+            <button
+              @click="decide('accept')"
+              :disabled="deciding"
+              class="bg-forest hover:bg-forest-dark text-cream text-xs font-semibold px-4 py-2 rounded-lg transition disabled:opacity-50"
+            >
+              {{ deciding ? "Processing..." : "Accept & apply" }}
+            </button>
+            <button
+              @click="decide('reject')"
+              :disabled="deciding"
+              class="bg-terracotta hover:bg-terracotta-dark text-cream text-xs font-semibold px-4 py-2 rounded-lg transition disabled:opacity-50"
+            >
+              Reject
+            </button>
+          </div>
+          <div v-if="decideError" class="text-xs text-terracotta mt-2">{{ decideError }}</div>
+        </div>
+
         <!-- Promotion celebration banner -->
         <div
           v-if="justPromoted"
@@ -227,7 +252,7 @@
 <script setup>
 import { ref, computed, watch } from "vue";
 import { useRoute, useRouter, RouterLink } from "vue-router";
-import { getSuggestion, castVote } from "../api/suggestions";
+import { getSuggestion, castVote, decideSuggestion } from "../api/suggestions";
 import { useAuthStore } from "../stores/auth";
 
 const route = useRoute();
@@ -240,6 +265,8 @@ const error = ref("");
 const voting = ref(false);
 const voteError = ref("");
 const justPromoted = ref(false);
+const deciding = ref(false);
+const decideError = ref("");
 
 const canVote = computed(() => {
   if (!suggestion.value) return false;
@@ -341,6 +368,26 @@ async function vote(voteType) {
     }
   } finally {
     voting.value = false;
+  }
+}
+
+// ── Reviewer decide (accept/reject) ───────────────────────────
+async function decide(decision) {
+  deciding.value = true;
+  decideError.value = "";
+
+  try {
+    const result = await decideSuggestion(suggestion.value.id, decision);
+    suggestion.value.status = result.status;
+    suggestion.value.decided_at = result.decided_at;
+    if (decision === "accept") {
+      justPromoted.value = true;
+      suggestion.value.applied_at = result.decided_at;
+    }
+  } catch (err) {
+    decideError.value = err.response?.data?.detail || "Failed to process. Please try again.";
+  } finally {
+    deciding.value = false;
   }
 }
 

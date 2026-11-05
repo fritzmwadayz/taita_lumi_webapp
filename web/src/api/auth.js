@@ -94,6 +94,20 @@ export async function fetchMyStats() {
 }
 
 /**
+ * Change the current user's password.
+ * @param {string} currentPassword
+ * @param {string} newPassword
+ * @returns {Promise<{status: string, message: string}>}
+ */
+export async function changePassword(currentPassword, newPassword) {
+  const res = await api.patch("/api/auth/me/password", {
+    current_password: currentPassword,
+    new_password: newPassword,
+  });
+  return res.data;
+}
+
+/**
  * Logout (server returns 204, client discards tokens).
  * @returns {Promise<void>}
  */

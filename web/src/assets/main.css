@@ -2,12 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Base ─────────────────────────────────────────────────── */
 body {
   @apply bg-cream text-ink font-sans antialiased;
 }
 
-/* ── Smooth scrolling for in-page anchors ─────────────────── */
 html {
   scroll-behavior: smooth;
 }

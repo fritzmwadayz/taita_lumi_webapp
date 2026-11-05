@@ -27,14 +27,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.anon import check_rate_limit, check_registered_user_rate_limit, get_or_create_anon_session
 from app.db import get_db
-from app.deps import get_optional_user
+from app.deps import get_optional_user, require_reviewer
 from app.models import AnonymousSession, Suggestion, User, Vote, Word
+from app.promote import _apply_gloss, _apply_new_word, _apply_relation, _apply_word_correction
 from app.schemas_suggestion import (
     CreateSuggestionRequest,
     SuggestionListItem,
     SuggestionListResponse,
     SuggestionResponse,
 )
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -404,3 +406,79 @@ async def get_suggestion(
         upvotes=vote_counts.get(suggestion.id, {}).get("up", 0),
         downvotes=vote_counts.get(suggestion.id, {}).get("down", 0),
     )
+
+
+# ═══════════════════════════════════════════════════════════════
+# POST /api/suggestions/{id}/decide — reviewer/admin accept or reject
+# ═══════════════════════════════════════════════════════════════
+
+
+class DecideRequest(BaseModel):
+    """Reviewer accepts or rejects a suggestion manually."""
+
+    decision: str  # 'accept' or 'reject'
+
+
+@router.post("/suggestions/{suggestion_id}/decide")
+async def decide_suggestion(
+    suggestion_id: UUID,
+    req: DecideRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_reviewer),
+):
+    """Reviewer or admin manually accepts or rejects a suggestion.
+
+    Accepting applies the suggestion to the word graph immediately
+    (same as auto-promote, but without the voting threshold).
+    Rejecting closes it without applying.
+    """
+    if req.decision not in ("accept", "reject"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Decision must be 'accept' or 'reject'",
+        )
+
+    result = await db.execute(
+        select(Suggestion).where(Suggestion.id == suggestion_id)
+    )
+    suggestion = result.scalar_one_or_none()
+    if suggestion is None:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+
+    if suggestion.status != "open":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Suggestion is already {suggestion.status}",
+        )
+
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+
+    if req.decision == "accept":
+        # ── Apply the suggestion ──────────────────────────────
+        if suggestion.target_type == "new_word":
+            await _apply_new_word(db, suggestion, actor_id=current_user.id)
+        elif suggestion.target_type == "word":
+            await _apply_word_correction(db, suggestion, actor_id=current_user.id)
+        elif suggestion.target_type == "gloss":
+            await _apply_gloss(db, suggestion, actor_id=current_user.id)
+        elif suggestion.target_type == "relation":
+            await _apply_relation(db, suggestion, actor_id=current_user.id)
+
+        suggestion.status = "accepted"
+        suggestion.applied_at = now
+    else:
+        suggestion.status = "rejected"
+
+    suggestion.decided_at = now
+    suggestion.decided_by_user_id = current_user.id
+
+    await db.commit()
+
+    return {
+        "id": str(suggestion.id),
+        "status": suggestion.status,
+        "decided_at": suggestion.decided_at.isoformat(),
+        "decided_by": str(current_user.id),
+    }

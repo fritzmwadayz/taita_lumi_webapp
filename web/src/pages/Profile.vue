@@ -71,7 +71,7 @@
             class="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded"
             :class="authStore.isAdmin ? 'bg-terracotta/15 text-terracotta-dark' : 'bg-cream-200 text-stone'"
           >
-            {{ authStore.isAdmin ? "Admin" : authStore.user.role === "contributor" ? "Reviewer" : "User" }}
+            {{ authStore.isAdmin ? "Admin" : authStore.user.role === "reviewer" ? "Reviewer" : "User" }}
           </span>
           <span class="text-xs text-stone-light">
             Joined {{ formatDate(authStore.user.created_at) }}
@@ -140,6 +140,50 @@
         </RouterLink>
       </section>
 
+      <!-- Change password -->
+      <section class="mb-8">
+        <h2 class="text-xs font-semibold uppercase tracking-widest text-stone mb-3">
+          Change password
+        </h2>
+        <div v-if="!authStore.user?.oauth_provider" class="bg-cream-50 border border-cream-200 rounded-xl p-5">
+          <div v-if="!pwFormOpen">
+            <button
+              @click="openPwForm"
+              class="text-sm font-semibold text-forest hover:underline"
+            >
+              Change password →
+            </button>
+          </div>
+          <div v-else class="space-y-3">
+            <div>
+              <label class="field-label">Current password</label>
+              <input v-model="pwForm.current" type="password" class="field" :disabled="pwSaving" />
+            </div>
+            <div>
+              <label class="field-label">New password</label>
+              <input v-model="pwForm.new" type="password" class="field" placeholder="At least 8 characters" :disabled="pwSaving" />
+            </div>
+            <div v-if="pwError" class="text-xs text-terracotta">{{ pwError }}</div>
+            <div v-if="pwSuccess" class="text-xs text-forest">Password changed successfully.</div>
+            <div class="flex gap-2">
+              <button
+                @click="savePassword"
+                :disabled="pwSaving"
+                class="bg-forest hover:bg-forest-dark text-cream text-sm font-semibold px-4 py-2 rounded-lg transition disabled:opacity-50"
+              >
+                {{ pwSaving ? "Saving..." : "Save" }}
+              </button>
+              <button @click="closePwForm" class="text-sm text-stone hover:text-ink px-4 py-2">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="text-xs text-stone-light italic">
+          You're signed in with Google — no password to change.
+        </div>
+      </section>
+
       <!-- Actions -->
       <section class="border-t border-cream-200 pt-6">
         <button
@@ -155,10 +199,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, reactive, onMounted } from "vue";
 import { useRouter, RouterLink } from "vue-router";
 import { useAuthStore } from "../stores/auth";
-import { fetchMyStats, updateMe } from "../api/auth";
+import { fetchMyStats, updateMe, changePassword } from "../api/auth";
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -168,6 +212,53 @@ const stats = ref(null);
 const editingName = ref(false);
 const nameEdit = ref("");
 const savingName = ref(false);
+
+// Password form state
+const pwFormOpen = ref(false);
+const pwForm = reactive({ current: "", new: "" });
+const pwSaving = ref(false);
+const pwError = ref("");
+const pwSuccess = ref(false);
+
+function openPwForm() {
+  pwForm.current = "";
+  pwForm.new = "";
+  pwError.value = "";
+  pwSuccess.value = false;
+  pwFormOpen.value = true;
+}
+
+function closePwForm() {
+  pwFormOpen.value = false;
+  pwError.value = "";
+  pwSuccess.value = false;
+}
+
+async function savePassword() {
+  if (!pwForm.current || !pwForm.new) {
+    pwError.value = "Please fill in both fields.";
+    return;
+  }
+  if (pwForm.new.length < 8) {
+    pwError.value = "New password must be at least 8 characters.";
+    return;
+  }
+
+  pwSaving.value = true;
+  pwError.value = "";
+  pwSuccess.value = false;
+
+  try {
+    await changePassword(pwForm.current, pwForm.new);
+    pwSuccess.value = true;
+    pwForm.current = "";
+    pwForm.new = "";
+  } catch (err) {
+    pwError.value = err.response?.data?.detail || "Failed to change password.";
+  } finally {
+    pwSaving.value = false;
+  }
+}
 
 function formatDate(iso) {
   if (!iso) return "";

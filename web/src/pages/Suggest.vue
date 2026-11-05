@@ -4,20 +4,21 @@
     <section class="px-12 py-12 border-b border-cream-200">
       <div class="max-w-3xl">
         <h1 class="font-serif text-4xl text-forest-dark mb-3">
-          {{ isAuthed ? "Add a new word" : "Suggest a new word" }}
+          {{ isReviewer ? "Add a new word" : "Suggest a new word" }}
         </h1>
         <p class="text-base text-stone leading-relaxed">
-          <template v-if="isAuthed">
-            As a contributor, words you add go <strong>live immediately</strong>.
+          <template v-if="isReviewer">
+            As a reviewer, words you add go <strong>live immediately</strong>.
             The community can still suggest corrections later.
           </template>
           <template v-else>
             Your suggestion will be reviewed by the community.
             <RouterLink
+              v-if="!isAuthed"
               :to="{ path: '/login', query: { next: '/suggest' } }"
               class="text-forest font-medium hover:underline"
             >Sign in</RouterLink>
-            to add words directly without waiting for votes.
+            <template v-if="!isAuthed"> for a higher rate limit.</template>
           </template>
         </p>
         <p class="text-xs text-stone-light mt-3">
@@ -28,8 +29,8 @@
       </div>
     </section>
 
-    <!-- Mode toggle (only for authed users — they can choose either path) -->
-    <section v-if="isAuthed" class="px-12 py-4 border-b border-cream-200">
+    <!-- Mode toggle (only for reviewers — they can choose direct add or suggest) -->
+    <section v-if="isReviewer" class="px-12 py-4 border-b border-cream-200">
       <div class="flex bg-cream-100 rounded-lg p-1 max-w-md">
         <button
           @click="mode = 'direct'"
@@ -53,6 +54,38 @@
         </template>
       </p>
     </section>
+
+    <!-- First-time contributor nudge -->
+    <div
+      v-if="showGuideNudge"
+      class="mx-12 mt-6 bg-ochre/15 border border-ochre/40 rounded-xl p-5 flex items-start gap-4"
+    >
+      <svg class="w-6 h-6 text-ochre flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+      </svg>
+      <div class="flex-1">
+        <p class="text-sm font-semibold text-ink mb-1">First time contributing?</p>
+        <p class="text-xs text-stone leading-relaxed mb-3">
+          The Reading Guide explains how Taita words are written in this dictionary — sounds, spelling,
+          plurals, and the "word = sentence" thing. It takes 2 minutes and will make your suggestions better.
+        </p>
+        <div class="flex items-center gap-3">
+          <RouterLink
+            to="/guide"
+            class="text-xs font-semibold text-forest hover:underline"
+          >
+            Read the guide →
+          </RouterLink>
+          <button
+            @click="dismissNudge"
+            class="text-xs text-stone-light hover:text-stone"
+          >
+            I'll skip it for now
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Form -->
     <form @submit.prevent="onSubmit" class="px-12 py-10 max-w-5xl">
@@ -193,9 +226,9 @@
         </div>
       </div>
 
-      <!-- Anon rate-limit notice -->
+      <!-- Rate-limit notice (anon or registered non-reviewer) -->
       <div
-        v-if="!isAuthed"
+        v-if="!isReviewer"
         class="mt-8 bg-cream-100 border border-cream-200 rounded-lg p-4 flex gap-3 items-start max-w-3xl"
       >
         <svg
@@ -212,12 +245,18 @@
           />
         </svg>
         <p class="text-xs text-ink-soft leading-relaxed">
-          You can suggest <strong>5 words per hour</strong> as an anonymous user.
-          <RouterLink
-            :to="{ path: '/login', query: { next: '/suggest' } }"
-            class="text-forest font-medium hover:underline"
-          >Sign in</RouterLink>
-          for unlimited suggestions.
+          <template v-if="!isAuthed">
+            You can suggest <strong>5 words per hour</strong> as an anonymous user.
+            <RouterLink
+              :to="{ path: '/login', query: { next: '/suggest' } }"
+              class="text-forest font-medium hover:underline"
+            >Sign in</RouterLink>
+            for 15/hour.
+          </template>
+          <template v-else>
+            You can suggest <strong>15 words per hour</strong>.
+            Become a reviewer for unlimited suggestions.
+          </template>
         </p>
       </div>
 
@@ -227,6 +266,14 @@
         class="mt-6 bg-terracotta/10 border border-terracotta/30 rounded-lg p-4 text-sm text-terracotta-dark"
       >
         {{ error }}
+        <div v-if="duplicateWord" class="mt-2 flex items-center gap-2">
+          <RouterLink
+            :to="`/words/${duplicateWord.id}`"
+            class="inline-flex items-center gap-1 text-forest hover:underline font-medium"
+          >
+            See "{{ duplicateWord.headword }}" →
+          </RouterLink>
+        </div>
       </div>
 
       <div
@@ -283,14 +330,42 @@ import { createWord } from "../api/words";
 
 const authStore = useAuthStore();
 
+// ── Reading Guide nudge ───────────────────────────────────────
+// Show the banner if this is the user's first time on the Suggest page.
+// Stored in localStorage so it only shows once (until dismissed or until
+// they actually visit the guide).
+const GUIDE_NUDGE_KEY = "taitalumi_guide_nudge_dismissed";
+const nudgeDismissed = ref(localStorage.getItem(GUIDE_NUDGE_KEY) === "true");
+const showGuideNudge = computed(() => !nudgeDismissed.value);
+
+function dismissNudge() {
+  nudgeDismissed.value = true;
+  localStorage.setItem(GUIDE_NUDGE_KEY, "true");
+}
+
+// If they visit the guide, we consider the nudge served
+// (checked on mount — if they already visited, don't show again)
+import { onMounted } from "vue";
+onMounted(() => {
+  // Check if they've been to the guide (separate key set by the guide page)
+  if (localStorage.getItem("taitalumi_guide_visited") === "true") {
+    nudgeDismissed.value = true;
+  }
+});
+
+// Only reviewers and admins can add words directly.
+// Registered non-reviewer users can suggest (with higher rate limit than anon).
+const isReviewer = computed(
+  () => authStore.isAuthenticated && (authStore.user?.role === "reviewer" || authStore.user?.role === "admin")
+);
 const isAuthed = computed(() => authStore.isAuthenticated);
 
-// Authed users can choose between direct add or suggest.
-// Anon users can only suggest.
+// Reviewers can choose between direct add or suggest.
+// Registered users and anon can only suggest.
 const mode = ref("direct"); // 'direct' or 'suggest'
 
 const useSuggestPath = computed(() => {
-  if (!isAuthed.value) return true; // anon always suggests
+  if (!isReviewer.value) return true; // non-reviewers always suggest
   return mode.value === "suggest";
 });
 
@@ -310,10 +385,12 @@ const submitting = ref(false);
 const error = ref("");
 const success = ref(false);
 const successId = ref(null);
+const duplicateWord = ref(null); // { id, headword } when a duplicate is found
 
 async function onSubmit() {
   error.value = "";
   success.value = false;
+  duplicateWord.value = null;
 
   // ── Basic validation ───────────────────────────────────────
   if (!form.headword.trim()) {
@@ -385,7 +462,18 @@ async function onSubmit() {
       error.value =
         "Rate limit exceeded: you've submitted too many suggestions recently. Try again later or sign in for unlimited suggestions.";
     } else if (err.response?.status === 409) {
-      error.value = "A word with this spelling already exists in the dictionary.";
+      // Backend returns { message, existing_word_id, existing_headword } for duplicates
+      const detail = err.response?.data?.detail;
+      if (detail && typeof detail === "object" && detail.existing_word_id) {
+        duplicateWord.value = {
+          id: detail.existing_word_id,
+          headword: detail.existing_headword,
+        };
+        error.value = detail.message || "This word already exists.";
+      } else {
+        // Direct-add 409 returns a plain string
+        error.value = typeof detail === "string" ? detail : "A word with this spelling already exists.";
+      }
     } else if (err.response?.status === 401) {
       error.value = "Please sign in to add words directly.";
     } else {

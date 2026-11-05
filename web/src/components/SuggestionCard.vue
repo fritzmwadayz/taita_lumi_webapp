@@ -185,49 +185,17 @@ async function vote(voteType) {
 
 <style scoped>
 .vote-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  border: 1px solid #e8dfc8;
-  cursor: pointer;
-  transition: all 0.15s;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px; border-radius: 8px; font-size: 13px;
+  font-weight: 500; border: 1px solid #e8dfc8; cursor: pointer; transition: all 0.15s;
 }
-.vote-pill:disabled {
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-.vote-up {
-  background: #f0f7f1;
-  color: #2d5a3d;
-  border-color: #c8d8c8;
-}
-.vote-up:hover:not(:disabled) {
-  background: #d8ead9;
-  border-color: #2d5a3d;
-}
-.vote-up.voted {
-  background: #2d5a3d;
-  color: #fbf7f0;
-  border-color: #2d5a3d;
-}
-.vote-down {
-  background: #faf0eb;
-  color: #c75b39;
-  border-color: #e8c8b8;
-}
-.vote-down:hover:not(:disabled) {
-  background: #f5ddd3;
-  border-color: #c75b39;
-}
-.vote-down.voted {
-  background: #c75b39;
-  color: #fbf7f0;
-  border-color: #c75b39;
-}
+.vote-pill:disabled { cursor: not-allowed; opacity: 0.7; }
+.vote-up { background: #f0f7f1; color: #2d5a3d; border-color: #c8d8c8; }
+.vote-up:hover:not(:disabled) { background: #d8ead9; border-color: #2d5a3d; }
+.vote-up.voted { background: #2d5a3d; color: #fbf7f0; border-color: #2d5a3d; }
+.vote-down { background: #faf0eb; color: #c75b39; border-color: #e8c8b8; }
+.vote-down:hover:not(:disabled) { background: #f5ddd3; border-color: #c75b39; }
+.vote-down.voted { background: #c75b39; color: #fbf7f0; border-color: #c75b39; }
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;

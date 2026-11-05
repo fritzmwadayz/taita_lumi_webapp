@@ -478,3 +478,178 @@ async def create_word(
         examples=[],
         relations=[],
     )
+
+
+# ═══════════════════════════════════════════════════════════════
+# PATCH /api/words/{id} — reviewer/admin edits a word
+# ═══════════════════════════════════════════════════════════════
+
+
+class EditWordRequest(BaseModel):
+    """Edit a word's fields. All fields optional — only provided fields are updated."""
+
+    headword: str | None = None
+    part_of_speech: str | None = None
+    noun_class: str | None = None
+    dialect: str | None = None
+    literal_translation: str | None = None
+    morphology_notes: str | None = None
+    swahili_gloss: str | None = None
+    english_gloss: str | None = None
+
+
+@router.patch("/words/{word_id}", response_model=WordDetail)
+async def edit_word(
+    word_id: UUID,
+    req: EditWordRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_reviewer),
+):
+    """Edit a word's fields. Requires reviewer or admin role.
+
+    Only provided fields are updated. Gloss fields (swahili_gloss, english_gloss)
+    update the corresponding Gloss rows — creates them if they don't exist.
+    """
+    result = await db.execute(
+        select(Word)
+        .where(Word.id == word_id)
+        .options(selectinload(Word.glosses), selectinload(Word.examples))
+    )
+    word = result.scalar_one_or_none()
+    if word is None:
+        raise HTTPException(status_code=404, detail="Word not found")
+
+    from datetime import datetime, timezone
+
+    before = {}
+    after = {}
+
+    # ── Scalar fields ─────────────────────────────────────────
+    if req.headword is not None:
+        before["headword"] = word.headword
+        word.headword = req.headword.strip()
+        word.normalized_form = _normalize_form(req.headword)
+        after["headword"] = word.headword
+
+    if req.part_of_speech is not None:
+        before["part_of_speech"] = word.part_of_speech
+        word.part_of_speech = req.part_of_speech or None
+        after["part_of_speech"] = word.part_of_speech
+
+    if req.noun_class is not None:
+        before["noun_class"] = word.noun_class
+        word.noun_class = req.noun_class or None
+        after["noun_class"] = word.noun_class
+
+    if req.dialect is not None:
+        before["dialect"] = word.dialect
+        word.dialect = req.dialect or None
+        after["dialect"] = word.dialect
+
+    if req.literal_translation is not None:
+        before["literal_translation"] = word.literal_translation
+        word.literal_translation = req.literal_translation or None
+        after["literal_translation"] = word.literal_translation
+
+    if req.morphology_notes is not None:
+        before["morphology_notes"] = word.morphology_notes
+        word.morphology_notes = req.morphology_notes or None
+        after["morphology_notes"] = word.morphology_notes
+
+    # ── Gloss fields ──────────────────────────────────────────
+    if req.swahili_gloss is not None:
+        sw_gloss = next((g for g in word.glosses if g.language == "sw"), None)
+        if sw_gloss:
+            before["swahili_gloss"] = sw_gloss.text
+            sw_gloss.text = req.swahili_gloss.strip()
+        else:
+            sw_gloss = Gloss(word_id=word.id, language="sw", text=req.swahili_gloss.strip())
+            db.add(sw_gloss)
+        after["swahili_gloss"] = req.swahili_gloss.strip()
+
+    if req.english_gloss is not None:
+        en_gloss = next((g for g in word.glosses if g.language == "en"), None)
+        if en_gloss:
+            before["english_gloss"] = en_gloss.text
+            en_gloss.text = req.english_gloss.strip()
+        else:
+            en_gloss = Gloss(word_id=word.id, language="en", text=req.english_gloss.strip())
+            db.add(en_gloss)
+        after["english_gloss"] = req.english_gloss.strip()
+
+    # ── Audit log + mark reviewed ─────────────────────────────
+    if before or after:
+        word.reviewed_at = datetime.now(timezone.utc)
+        word.reviewed_by_user_id = current_user.id
+        db.add(
+            EditLog(
+                actor_user_id=current_user.id,
+                action="update",
+                entity_type="word",
+                entity_id=word.id,
+                before=before or None,
+                after={**after, "source": "reviewer_edit", "by_user": current_user.email},
+            )
+        )
+
+    await db.commit()
+
+    # ── Return updated word ───────────────────────────────────
+    # Re-fetch with glosses loaded
+    result = await db.execute(
+        select(Word)
+        .where(Word.id == word_id)
+        .options(selectinload(Word.glosses), selectinload(Word.examples))
+    )
+    word = result.scalar_one()
+
+    # Fetch relations
+    out_stmt = (
+        select(WordRelation, Word.headword)
+        .join(Word, WordRelation.to_word_id == Word.id)
+        .where(WordRelation.from_word_id == word_id)
+    )
+    in_stmt = (
+        select(WordRelation, Word.headword)
+        .join(Word, WordRelation.from_word_id == Word.id)
+        .where(WordRelation.to_word_id == word_id)
+    )
+
+    relations: list[RelationOut] = []
+
+    out_result = await db.execute(out_stmt)
+    for rel, other_headword in out_result.all():
+        relations.append(
+            RelationOut(
+                other_word_id=rel.to_word_id,
+                other_headword=other_headword,
+                relation_type=rel.relation_type,
+                direction="outgoing",
+            )
+        )
+
+    in_result = await db.execute(in_stmt)
+    for rel, other_headword in in_result.all():
+        relations.append(
+            RelationOut(
+                other_word_id=rel.from_word_id,
+                other_headword=other_headword,
+                relation_type=rel.relation_type,
+                direction="incoming",
+            )
+        )
+
+    return WordDetail(
+        id=word.id,
+        headword=word.headword,
+        part_of_speech=word.part_of_speech,
+        noun_class=word.noun_class,
+        dialect=word.dialect,
+        literal_translation=word.literal_translation,
+        morphology_notes=word.morphology_notes,
+        status=word.status,
+        created_at=word.created_at,
+        glosses=[GlossOut(language=g.language, text=g.text) for g in word.glosses],
+        examples=[],
+        relations=relations,
+    )

@@ -239,6 +239,47 @@ async def update_me(
 
 
 # ═══════════════════════════════════════════════════════════════
+# PATCH /api/auth/me/password — change password
+# ═══════════════════════════════════════════════════════════════
+
+
+class ChangePasswordRequest(BaseModel):
+    """Change the current user's password."""
+
+    current_password: str
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+@router.patch("/me/password")
+async def change_password(
+    req: ChangePasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Change the current user's password.
+
+    Requires the current password. OAuth-only users (no password_hash)
+    cannot use this endpoint — they should use Google sign-in.
+    """
+    if not current_user.password_hash:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This account uses Google sign-in and has no password set.",
+        )
+
+    if not verify_password(req.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect.",
+        )
+
+    current_user.password_hash = hash_password(req.new_password)
+    await db.commit()
+
+    return {"status": "ok", "message": "Password changed."}
+
+
+# ═══════════════════════════════════════════════════════════════
 # GET /api/auth/me/stats — contribution stats
 # ═══════════════════════════════════════════════════════════════
 
