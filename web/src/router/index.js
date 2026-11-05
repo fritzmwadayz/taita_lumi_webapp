@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { useAuthStore } from "../stores/auth";
 
 const routes = [
   { path: "/", name: "home", component: () => import("../pages/Home.vue") },
@@ -16,6 +17,7 @@ const routes = [
     path: "/suggest",
     name: "suggest",
     component: () => import("../pages/Suggest.vue"),
+    meta: { requiresAuth: false }, // anon can suggest
   },
   {
     path: "/suggestions",
@@ -31,6 +33,7 @@ const routes = [
     path: "/login",
     name: "login",
     component: () => import("../pages/Login.vue"),
+    meta: { guestOnly: true },
   },
   {
     path: "/guide",
@@ -46,11 +49,13 @@ const routes = [
     path: "/me",
     name: "profile",
     component: () => import("../pages/Profile.vue"),
+    meta: { requiresAuth: true },
   },
   {
     path: "/admin",
     name: "admin",
     component: () => import("../pages/Admin.vue"),
+    meta: { requiresAuth: true, requiresAdmin: true },
   },
   // Catch-all 404
   {
@@ -66,6 +71,33 @@ const router = createRouter({
   scrollBehavior() {
     return { top: 0 };
   },
+});
+
+// ── Route guard ───────────────────────────────────────────────
+router.beforeEach(async (to, from, next) => {
+  const authStore = useAuthStore();
+
+  // Init auth store on first navigation (loads user from stored token)
+  if (authStore.accessToken && !authStore.user && !authStore.loading) {
+    await authStore.init();
+  }
+
+  // ── Protected routes ───────────────────────────────────────
+  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+    return next({ path: "/login", query: { next: to.fullPath } });
+  }
+
+  // ── Admin-only routes ──────────────────────────────────────
+  if (to.meta.requiresAdmin && !authStore.isAdmin) {
+    return next("/");
+  }
+
+  // ── Guest-only routes (e.g. /login) — redirect if logged in ─
+  if (to.meta.guestOnly && authStore.isAuthenticated) {
+    return next("/");
+  }
+
+  next();
 });
 
 export default router;

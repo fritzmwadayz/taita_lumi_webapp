@@ -3,7 +3,7 @@ name = "taitalumi-api"
 version = "0.1.0"
 description = "TaitaLumi Web — FastAPI backend for the Taita dictionary"
 requires-python = ">=3.11"
-license = "MIT"                                         
+license = {text = "MIT"}
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
@@ -14,11 +14,13 @@ dependencies = [
     "pydantic-settings>=2.6.0",
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
+    "bcrypt>=4.0.1,<4.1.0",
     "email-validator>=2.2.0",
+    "google-auth>=2.37.0",
 ]
 
-[tool.setuptools]                                   
-packages = ["app"]                                       
+[project.scripts]
+taitalumi-import = "app.cli.import_data:main"
 
 [project.optional-dependencies]
 dev = [
@@ -29,8 +31,12 @@ dev = [
     "ruff>=0.8.0",
 ]
 
+[tool.setuptools]
+packages = ["app", "app.routes", "app.cli"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 
 [tool.ruff]
@@ -39,4 +45,3 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
-

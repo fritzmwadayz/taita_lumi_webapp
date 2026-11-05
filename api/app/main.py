@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routes import health
+from app.routes import admin, auth, health, suggestions, votes, words
 
 settings = get_settings()
 
@@ -36,6 +36,11 @@ app.add_middleware(
 
 # Routes
 app.include_router(health.router, prefix="/api")
+app.include_router(words.router, prefix="/api")
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(suggestions.router, prefix="/api", tags=["suggestions"])
+app.include_router(votes.router, prefix="/api", tags=["votes"])
+app.include_router(admin.router, prefix="/api", tags=["admin"])
 
 
 @app.get("/")
