@@ -91,28 +91,9 @@
               </div>
               <div class="flex-1">
                 <p class="text-sm font-semibold text-ink">M-Pesa</p>
-                <p class="text-xs text-stone">Send to <span class="font-mono">0700 000 000</span></p>
+                <p class="text-xs text-stone">Send to <span class="font-mono">0718 178 317</span></p>
               </div>
             </div>
-
-            <!-- PayPal -->
-            <a
-              href="https://paypal.me/taitalumi"
-              target="_blank"
-              rel="noopener"
-              class="bg-cream-50 border border-cream-200 rounded-lg p-4 flex items-center gap-4 hover:border-forest transition"
-            >
-              <div class="w-10 h-10 rounded-lg bg-[#003087] flex items-center justify-center flex-shrink-0">
-                <span class="text-white font-bold">P</span>
-              </div>
-              <div class="flex-1">
-                <p class="text-sm font-semibold text-ink">PayPal</p>
-                <p class="text-xs text-stone">paypal.me/taitalumi</p>
-              </div>
-              <svg class="w-4 h-4 text-stone" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-              </svg>
-            </a>
           </div>
         </div>
       </div>
