@@ -1,9 +1,9 @@
 <template>
-  <div class="px-12 py-12">
+  <div class="px-4 md:px-12 py-12">
     <!-- Loading -->
     <div v-if="loading" class="animate-pulse">
       <div class="h-10 bg-cream-200 rounded w-1/4 mb-6"></div>
-      <div class="grid grid-cols-4 gap-4 mb-8">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <div v-for="i in 4" :key="i" class="h-24 bg-cream-100 rounded-xl"></div>
       </div>
     </div>
@@ -27,7 +27,7 @@
       </header>
 
       <!-- Stats cards -->
-      <section class="grid grid-cols-4 gap-4 mb-10">
+      <section class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
         <div class="bg-white border border-cream-200 rounded-xl p-5">
           <p class="font-serif text-3xl text-forest-dark font-semibold">
             {{ stats.total_words.toLocaleString() }}
@@ -55,7 +55,7 @@
       </section>
 
       <!-- Two columns: recent words + recent suggestions -->
-      <section class="grid grid-cols-2 gap-6 mb-10">
+      <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
         <!-- Recent words -->
         <div>
           <h2 class="font-serif text-xl text-forest-dark mb-4">Recently added words</h2>
@@ -130,7 +130,7 @@
       <!-- Suggestion breakdown -->
       <section class="bg-cream-50 border border-cream-200 rounded-xl p-6 mb-10">
         <h2 class="font-serif text-xl text-forest-dark mb-4">Suggestion breakdown</h2>
-        <div class="grid grid-cols-3 gap-4 text-center">
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-center">
           <div>
             <p class="font-serif text-2xl text-terracotta font-semibold">{{ stats.open_suggestions }}</p>
             <p class="text-[10px] uppercase tracking-wider text-stone">Open</p>
@@ -149,7 +149,7 @@
       <!-- Admin tools (placeholder links — full pages come in future iterations) -->
       <section>
         <h2 class="font-serif text-xl text-forest-dark mb-4">Admin tools</h2>
-        <div class="grid grid-cols-3 gap-4">
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
           <div class="bg-white border border-cream-200 rounded-xl p-5">
             <p class="font-medium text-ink mb-1">User management</p>
             <p class="text-xs text-stone mb-3">View, block, or promote users.</p>

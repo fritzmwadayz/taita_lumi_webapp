@@ -1,23 +1,23 @@
 <template>
   <div>
     <!-- Header -->
-    <section class="px-12 py-16 text-center border-b border-cream-200">
+    <section class="px-4 md:px-12 py-12 md:py-16 text-center border-b border-cream-200">
       <p class="text-xs font-semibold tracking-widest uppercase text-ochre mb-3">Support the project</p>
-      <h1 class="font-serif text-5xl text-forest-dark leading-tight mb-4 max-w-3xl mx-auto">
+      <h1 class="font-serif text-3xl md:text-5xl text-forest-dark leading-tight mb-4 max-w-3xl mx-auto">
         Keep TaitaLumi growing.
       </h1>
-      <p class="text-base text-stone leading-relaxed max-w-2xl mx-auto">
+      <p class="text-sm md:text-base text-stone leading-relaxed max-w-2xl mx-auto">
         TaitaLumi is a free, open-source project built by volunteers. There are two ways to help:
         contribute your time as a reviewer, or contribute financially.
       </p>
     </section>
 
     <!-- Two paths (reviewer first) -->
-    <section class="px-12 py-12">
-      <div class="grid grid-cols-2 gap-8 max-w-5xl mx-auto">
+    <section class="px-4 md:px-12 py-8 md:py-12">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 max-w-5xl mx-auto">
 
         <!-- Become a reviewer (first — shows up first on mobile) -->
-        <div class="bg-forest text-cream rounded-2xl p-8 relative overflow-hidden">
+        <div class="bg-forest text-cream rounded-2xl p-6 md:p-8 relative overflow-hidden">
           <div class="absolute top-0 right-0 w-40 h-40 opacity-10">
             <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="0.5">
               <pattern id="tri-support" patternUnits="userSpaceOnUse" width="20" height="20">
@@ -70,7 +70,7 @@
         </div>
 
         <!-- Financial support (or Donate) -->
-        <div class="bg-white border border-cream-200 rounded-2xl p-8">
+        <div class="bg-white border border-cream-200 rounded-2xl p-6 md:p-8">
           <div class="w-12 h-12 rounded-lg bg-forest flex items-center justify-center mb-4">
             <svg class="w-6 h-6 text-cream" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -91,7 +91,7 @@
               </div>
               <div class="flex-1">
                 <p class="text-sm font-semibold text-ink">M-Pesa</p>
-                <p class="text-xs text-stone">Paybill <span class="font-mono">247247</span> · Account <span class="font-mono">TaitaLumi</span></p>
+                <p class="text-xs text-stone">Send to <span class="font-mono">0700 000 000</span></p>
               </div>
             </div>
 
@@ -119,7 +119,7 @@
     </section>
 
     <!-- Thank you note -->
-    <section class="px-12 py-10 bg-cream-50 border-t border-cream-200 text-center">
+    <section class="px-4 md:px-12 py-8 md:py-10 bg-cream-50 border-t border-cream-200 text-center">
       <p class="text-sm text-stone">
         Thank you to everyone who supports TaitaLumi — whether through a donation, a word suggestion,
         or just sharing the dictionary with someone who speaks Taita.

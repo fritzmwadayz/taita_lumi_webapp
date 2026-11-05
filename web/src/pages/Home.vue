@@ -1,12 +1,12 @@
 <template>
   <div>
     <!-- Hero: 2-column -->
-    <section class="px-12 py-16 grid grid-cols-12 gap-12 items-center">
+    <section class="px-4 md:px-12 py-16 grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-12 items-center">
       <div class="col-span-7">
         <p class="text-xs font-semibold tracking-widest uppercase text-ochre mb-3">
           Kamusi ya Kidawida
         </p>
-        <h1 class="font-serif text-5xl text-forest-dark leading-tight mb-4">
+        <h1 class="font-serif text-3xl md:text-5xl text-forest-dark leading-tight mb-4">
           A living dictionary of the Taita language.
         </h1>
         <p class="text-base text-stone leading-relaxed mb-8 max-w-lg">
@@ -90,7 +90,7 @@
     </section>
 
     <!-- Recently Added -->
-    <section class="px-12 py-10 border-t border-cream-200">
+    <section class="px-4 md:px-12 py-10 border-t border-cream-200">
       <div class="flex items-baseline justify-between mb-6">
         <h3 class="font-serif text-xl text-forest-dark">Recently added</h3>
         <RouterLink to="/search" class="text-xs font-semibold text-forest hover:underline">
@@ -98,7 +98,7 @@
         </RouterLink>
       </div>
 
-      <div v-if="loading" class="grid grid-cols-2 gap-4">
+      <div v-if="loading" class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div v-for="i in 4" :key="i" class="bg-cream-50 border border-cream-200 rounded-xl p-5 animate-pulse">
           <div class="h-5 bg-cream-200 rounded w-1/3 mb-2"></div>
           <div class="h-4 bg-cream-200 rounded w-2/3 mb-1"></div>
@@ -111,14 +111,14 @@
         <p class="text-xs text-stone-light">{{ error }}</p>
       </div>
 
-      <div v-else class="grid grid-cols-2 gap-4">
+      <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <WordCard v-for="word in recentWords" :key="word.id" :word="word" />
       </div>
     </section>
 
     <!-- Stats -->
-    <section class="px-12 py-8 border-t border-cream-200 bg-cream-50">
-      <div class="grid grid-cols-4 gap-6 text-center mb-6">
+    <section class="px-4 md:px-12 py-8 border-t border-cream-200 bg-cream-50">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-6 text-center mb-6">
         <div>
           <p class="font-serif text-3xl text-forest-dark font-semibold">{{ stats.totalWords.toLocaleString() }}</p>
           <p class="text-[10px] uppercase tracking-wider text-stone">Words</p>
@@ -139,7 +139,7 @@
     </section>
 
     <!-- API health check -->
-    <section class="px-12 py-4 border-t border-cream-200">
+    <section class="px-4 md:px-12 py-4 border-t border-cream-200">
       <div class="bg-cream-50 border border-cream-200 rounded-xl p-4 flex items-center gap-3">
         <div
           :class="[

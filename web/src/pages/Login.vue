@@ -1,7 +1,7 @@
 <template>
-  <section class="grid grid-cols-12 min-h-[560px]">
+  <section class="grid grid-cols-1 md:grid-cols-12 min-h-[560px]">
     <!-- Side panel -->
-    <aside class="col-span-5 bg-forest text-cream p-12 flex flex-col justify-center relative overflow-hidden">
+    <aside class="col-span-1 md:col-span-5 bg-forest text-cream p-12 flex flex-col justify-center relative overflow-hidden">
       <div class="absolute top-0 right-0 w-64 h-64 opacity-10">
         <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="0.5">
           <pattern id="tri6" patternUnits="userSpaceOnUse" width="20" height="20">
@@ -44,7 +44,7 @@
     </aside>
 
     <!-- Form panel -->
-    <div class="col-span-7 p-12 flex flex-col justify-center">
+    <div class="col-span-1 md:col-span-7 p-12 flex flex-col justify-center">
       <div class="max-w-md mx-auto w-full">
         <h1 class="font-serif text-3xl text-forest-dark mb-1">
           {{ activeTab === "login" ? "Welcome back" : "Create account" }}

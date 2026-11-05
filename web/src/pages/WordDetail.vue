@@ -91,7 +91,7 @@
         <!-- Inline edit form -->
         <div v-if="editFormOpen" class="bg-cream-50 border border-cream-200 rounded-xl p-6 mb-6">
           <p class="text-xs font-semibold text-ink mb-4">Edit word</p>
-          <div class="grid grid-cols-2 gap-4 mb-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
               <label class="text-[10px] font-semibold text-stone uppercase tracking-wider">Word</label>
               <input v-model="editForm.headword" type="text" class="field" />
@@ -289,7 +289,7 @@
           <p class="text-xs font-semibold text-ink mb-3">
             Suggest a related word for "{{ word.headword }}"
           </p>
-          <div class="grid grid-cols-2 gap-3 mb-3">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
             <div>
               <label class="text-[10px] font-semibold text-stone uppercase tracking-wider">Related word</label>
               <input

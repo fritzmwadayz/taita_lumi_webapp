@@ -51,7 +51,7 @@
         </div>
 
         <!-- New word: show proposed word -->
-        <h1 v-if="suggestion.target_type === 'new_word'" class="font-serif text-5xl text-forest-dark font-semibold mb-4">
+        <h1 v-if="suggestion.target_type === 'new_word'" class="font-serif text-3xl md:text-5xl text-forest-dark font-semibold mb-4">
           {{ suggestion.proposed_value.headword }}
         </h1>
 
@@ -88,7 +88,7 @@
         </div>
 
         <!-- Metadata -->
-        <div class="mt-8 grid grid-cols-2 gap-4 text-sm">
+        <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
           <div v-if="suggestion.proposed_value.part_of_speech">
             <p class="text-[10px] uppercase tracking-wider text-stone-light mb-1">Part of speech</p>
             <p class="text-ink">{{ suggestion.proposed_value.part_of_speech }}</p>

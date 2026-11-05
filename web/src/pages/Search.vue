@@ -30,7 +30,7 @@
     </section>
 
     <!-- Layout: sidebar + results -->
-    <section class="px-8 py-8 grid grid-cols-12 gap-8">
+    <section class="px-8 py-8 grid grid-cols-1 md:grid-cols-12 gap-8">
       <!-- Filter sidebar -->
       <aside class="col-span-3">
         <h3 class="text-xs font-semibold uppercase tracking-widest text-stone mb-4">Filter</h3>
@@ -92,7 +92,7 @@
         </div>
 
         <!-- Loading -->
-        <div v-if="loading" class="grid grid-cols-2 gap-3">
+        <div v-if="loading" class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div v-for="i in 6" :key="i" class="bg-cream-50 border border-cream-200 rounded-xl p-4 animate-pulse">
             <div class="h-5 bg-cream-200 rounded w-1/3 mb-2"></div>
             <div class="h-4 bg-cream-200 rounded w-2/3 mb-1"></div>
@@ -121,7 +121,7 @@
         </div>
 
         <!-- Results grid -->
-        <div v-else class="grid grid-cols-2 gap-3">
+        <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <WordCard v-for="word in words" :key="word.id" :word="word" />
         </div>
 

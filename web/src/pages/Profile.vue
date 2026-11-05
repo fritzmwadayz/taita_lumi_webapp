@@ -80,7 +80,7 @@
       </header>
 
       <!-- Stats -->
-      <section class="grid grid-cols-3 gap-4 mb-8">
+      <section class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
         <div class="bg-cream-50 border border-cream-200 rounded-xl p-5 text-center">
           <p class="font-serif text-3xl text-forest-dark font-semibold">
             {{ stats?.words_added ?? 0 }}
@@ -106,7 +106,7 @@
         <h2 class="text-xs font-semibold uppercase tracking-widest text-stone mb-3">
           Your suggestions
         </h2>
-        <div class="grid grid-cols-3 gap-3 text-center">
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 text-center">
           <div class="bg-terracotta/5 border border-terracotta/20 rounded-lg p-3">
             <p class="font-serif text-xl text-terracotta font-semibold">{{ stats.suggestions_open }}</p>
             <p class="text-[10px] uppercase tracking-wider text-stone">Open</p>
