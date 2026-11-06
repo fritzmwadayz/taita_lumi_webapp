@@ -20,6 +20,12 @@ node_modules/
 *.tsbuildinfo
 
 # ======================
+# Nuxt
+# ======================
+.nuxt/
+.output/
+
+# ======================
 # Testing / coverage
 # ======================
 .pytest_cache/
@@ -37,6 +43,8 @@ coverage/
 *.env
 *.pem
 *.key
+.env.*
+!.env.example
 
 # ======================
 # Logs

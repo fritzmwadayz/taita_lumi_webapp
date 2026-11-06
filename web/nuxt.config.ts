@@ -19,7 +19,9 @@ export default defineNuxtConfig({
   ssr: true,
 
   // ── CSS ────────────────────────────────────────────────────────────────
-  css: ['~/assets/css/main.css'],
+  // main.css = design tokens + primitives; motion.css = transitions,
+  // skeletons, toasts, success overlay (plain CSS, no Tailwind directives).
+  css: ['~/assets/css/main.css', '~/assets/css/motion.css'],
 
   // ── Tailwind ───────────────────────────────────────────────────────────
   tailwindcss: {
@@ -39,28 +41,41 @@ export default defineNuxtConfig({
   },
 
   // ── Runtime config ─────────────────────────────────────────────────────
-  // public.apiBase = "" in both dev and prod — browser calls same-origin /api/*
-  // and Nitro's server/api/[...].ts proxy forwards to the FastAPI backend.
-  // The FastAPI URL is a server-side secret (never exposed to the browser).
+  // IMPORTANT: do NOT read process.env.* for secrets here. Values assigned in
+  // nuxt.config are BAKED into the Nitro server bundle at build time — so any
+  // env var read here ends up in .netlify/functions-internal/.../nitro.mjs,
+  // and Netlify's secrets scanner will block the deploy.
+  //
+  // Instead, leave the defaults empty (or a dev-only localhost fallback) and
+  // let Nuxt's runtime override inject the real values at request time:
+  //   runtimeConfig.apiBase             ← NUXT_API_BASE
+  //   runtimeConfig.oauth.google.clientId     ← NUXT_OAUTH_GOOGLE_CLIENT_ID
+  //   runtimeConfig.oauth.google.clientSecret ← NUXT_OAUTH_GOOGLE_CLIENT_SECRET
+  //   runtimeConfig.session.password          ← NUXT_SESSION_PASSWORD (nuxt-auth-utils)
+  // The bundle ships with empty strings → scanner sees nothing → deploy passes.
   runtimeConfig: {
-    // Server-only (never exposed to client)
-    apiBase: process.env.LUMI_API_BASE_URL || 'http://localhost:8000',
-    // OAuth: nuxt-auth-utils reads these via runtimeConfig.oauth.google
-    // Env vars follow the NUXT_OAUTH_GOOGLE_* convention
+    // Server-only (never exposed to client). localhost fallback is dev-only;
+    // in production NUXT_API_BASE overrides it at runtime.
+    apiBase: 'http://localhost:8000',
+    // OAuth: nuxt-auth-utils reads these via runtimeConfig.oauth.google.
+    // Empty defaults — injected at runtime via NUXT_OAUTH_GOOGLE_* env vars.
     oauth: {
       google: {
-        clientId: process.env.NUXT_OAUTH_GOOGLE_CLIENT_ID || '',
-        clientSecret: process.env.NUXT_OAUTH_GOOGLE_CLIENT_SECRET || '',
+        clientId: '',
+        clientSecret: '',
       },
     },
     public: {
       // Browser-visible. Empty string = relative URLs, proxied through Nitro.
-      apiBase: process.env.NUXT_PUBLIC_API_BASE || '',
+      apiBase: '',
     },
   },
 
   // ── App head ───────────────────────────────────────────────────────────
   app: {
+    // Page transitions: soft out-in fade (classes in motion.css).
+    // Automatically skipped for users with prefers-reduced-motion.
+    pageTransition: { name: 'page', mode: 'out-in' },
     head: {
       htmlAttrs: { lang: 'en' },
       title: 'Lumi — A living dictionary of the Taita language',
@@ -84,7 +99,10 @@ export default defineNuxtConfig({
   },
 
   // ── Nitro ──────────────────────────────────────────────────────────────
-  // Netlify auto-detects Nuxt and sets the preset. For local production builds
-  // you can force it: NITRO_PRESET=netlify npx nuxt build
+  // No devProxy — all /api/* requests are handled by Nitro server routes
+  // (server/api/[...].ts catch-all + specific auth handlers). The proxy.ts
+  // utility forwards to FastAPI directly via $fetch with auth + anon cookie.
+  // ⚠️ Do NOT add nitro.devProxy — it intercepts /api/* before Nitro handlers
+  // can run, bypassing auth and stripping the /api/ prefix.
   nitro: {},
 })
