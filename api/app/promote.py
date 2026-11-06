@@ -1,15 +1,20 @@
 """Auto-promote logic for suggestions.
 
-When a suggestion meets the threshold, it's automatically accepted
-and applied to the word graph:
-  - status = 'open'
-  - age >= 7 days
-  - net_votes (up - down) >= 3
-  - at least 2 distinct non-anon upvotes
+A suggestion is auto-promoted (accepted and applied) when BOTH:
+  - status == 'open'
+  - age >= 7 days  (created_at is at least 7 days old)
+  - net votes (upvotes - downvotes) >= 3
+
+(Reviewers/admins can also manually promote a suggestion via
+POST /api/suggestions/{id}/decide or POST /api/admin/suggestions/{id}/decide,
+bypassing the threshold entirely.)
 
 Applying a suggestion:
-  - target_type='new_word': create a Word row with glosses (sw + en)
-  - target_type='word': update the Word row's field
+  - target_type='new_word': create a Word row with glosses + examples
+  - target_type='word':     update the Word row's field
+  - target_type='gloss':    add a translation to an existing word
+  - target_type='example':  add a translation to an existing example
+  - target_type='relation': link this word to another word
 
 After applying:
   - suggestion.status = 'accepted'
@@ -26,12 +31,12 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import EditLog, Gloss, Suggestion, User, Vote, Word
+from app.models import EditLog, Example, Gloss, Suggestion, Vote, Word, WordRelation
+from app.slugs import generate_unique_slug
 
 # ── Threshold config ──────────────────────────────────────────
 PROMOTE_MIN_AGE_DAYS = 7
 PROMOTE_MIN_NET_VOTES = 3
-PROMOTE_MIN_NON_ANON_UPVOTES = 2
 
 
 def _normalize_form(text: str) -> str:
@@ -45,7 +50,12 @@ def _normalize_form(text: str) -> str:
 
 
 async def _meets_threshold(db: AsyncSession, suggestion: Suggestion) -> bool:
-    """Check if a suggestion meets the auto-promote threshold."""
+    """Check if a suggestion meets the auto-promote threshold.
+
+    Two conditions (matching the integration doc §9):
+      - age >= 7 days
+      - net votes (up - down) >= 3
+    """
     if suggestion.status != "open":
         return False
 
@@ -69,35 +79,25 @@ async def _meets_threshold(db: AsyncSession, suggestion: Suggestion) -> bool:
     if net_votes < PROMOTE_MIN_NET_VOTES:
         return False
 
-    # ── Non-anon upvotes (votes where user_id is not NULL) ───
-    result = await db.execute(
-        select(func.count()).where(
-            Vote.suggestion_id == suggestion.id,
-            Vote.vote == "up",
-            Vote.user_id.is_not(None),
-        )
-    )
-    non_anon_upvotes = result.scalar() or 0
-    if non_anon_upvotes < PROMOTE_MIN_NON_ANON_UPVOTES:
-        return False
-
     return True
 
 
 async def _apply_new_word(
     db: AsyncSession, suggestion: Suggestion, actor_id: UUID | None
 ) -> UUID:
-    """Apply a new_word suggestion: create the Word + Glosses.
+    """Apply a new_word suggestion: create the Word + Glosses + Examples.
 
     Returns the new Word ID.
     """
     pv = suggestion.proposed_value
     headword = pv.get("headword", "").strip()
     normalized = _normalize_form(headword)
+    slug = await generate_unique_slug(db, headword)
 
     word = Word(
         headword=headword,
         normalized_form=normalized,
+        slug=slug,
         part_of_speech=pv.get("part_of_speech"),
         noun_class=pv.get("noun_class"),
         dialect=pv.get("dialect"),
@@ -117,6 +117,17 @@ async def _apply_new_word(
     if pv.get("english_gloss"):
         db.add(Gloss(word_id=word.id, language="en", text=pv["english_gloss"]))
 
+    # ── Examples (optional) ───────────────────────────────────
+    for ex in pv.get("examples") or []:
+        if ex.get("taita_text"):
+            db.add(Example(
+                word_id=word.id,
+                taita_text=ex["taita_text"],
+                swahili_text=ex.get("swahili_text"),
+                english_text=ex.get("english_text"),
+                source_ref=ex.get("source_ref"),
+            ))
+
     # ── Audit log ─────────────────────────────────────────────
     db.add(
         EditLog(
@@ -126,6 +137,7 @@ async def _apply_new_word(
             entity_id=word.id,
             after={
                 "headword": word.headword,
+                "slug": word.slug,
                 "source": "auto-promote",
                 "suggestion_id": str(suggestion.id),
             },
@@ -142,7 +154,8 @@ async def _apply_word_correction(
 
     For v1, we support correcting scalar fields on the Word itself
     (headword, part_of_speech, dialect, noun_class, literal_translation,
-    morphology_notes). Gloss/example corrections come later.
+    morphology_notes). Gloss/example corrections come via target_type='gloss'
+    and target_type='example' respectively.
     """
     if not suggestion.target_id:
         return
@@ -160,12 +173,14 @@ async def _apply_word_correction(
     if new_value is None:
         return
 
-    # ── Special handling for headword (also update normalized_form) ─
+    # ── Special handling for headword (also update normalized_form + slug) ─
     before_value = getattr(word, field, None) if hasattr(word, field) else None
 
     if field == "headword":
         word.headword = str(new_value)
         word.normalized_form = _normalize_form(str(new_value))
+        # Regenerate slug (excluding this word's own current slug)
+        word.slug = await generate_unique_slug(db, str(new_value), exclude_word_id=word.id)
     elif hasattr(word, field):
         setattr(word, field, new_value)
     else:
@@ -241,6 +256,71 @@ async def _apply_gloss(
     )
 
 
+async def _apply_example(
+    db: AsyncSession, suggestion: Suggestion, actor_id: UUID | None
+) -> None:
+    """Apply an example suggestion: add a translation to an existing example.
+
+    target_type='example' is used when a reader suggests a translation for an
+    example that already has taita_text but is missing swahili_text or
+    english_text. The frontend's "See also / suggest a translation" affordance
+    posts here.
+
+    proposed_value should contain:
+      - language: 'sw' or 'en'
+      - text: the translation text
+    """
+    if not suggestion.target_id:
+        return
+
+    pv = suggestion.proposed_value
+    language = pv.get("language")
+    text = pv.get("text", "").strip()
+
+    if not language or not text:
+        return
+
+    # ── Fetch the example ─────────────────────────────────────
+    result = await db.execute(select(Example).where(Example.id == suggestion.target_id))
+    example = result.scalar_one_or_none()
+    if example is None:
+        return
+
+    # ── Don't overwrite an existing translation ───────────────
+    if language == "sw" and example.swahili_text:
+        return
+    if language == "en" and example.english_text:
+        return
+
+    # ── Apply ─────────────────────────────────────────────────
+    before = {}
+    if language == "sw":
+        before["swahili_text"] = example.swahili_text
+        example.swahili_text = text
+    elif language == "en":
+        before["english_text"] = example.english_text
+        example.english_text = text
+    else:
+        return  # unsupported language
+
+    # ── Audit log (entity_id = the example's id) ──────────────
+    db.add(
+        EditLog(
+            actor_user_id=actor_id,
+            action="update",
+            entity_type="example",
+            entity_id=example.id,
+            before=before or None,
+            after={
+                "language": language,
+                "text": text,
+                "source": "auto-promote",
+                "suggestion_id": str(suggestion.id),
+            },
+        )
+    )
+
+
 async def _apply_relation(
     db: AsyncSession, suggestion: Suggestion, actor_id: UUID | None
 ) -> None:
@@ -248,7 +328,11 @@ async def _apply_relation(
 
     proposed_value should contain:
       - related_word: headword (string) or word ID (string UUID)
-      - relation_type: 'variant', 'conjugation', 'antonym', 'plural', 'singular', etc.
+      - relation_type: 'variant', 'see_also', 'plural', 'singular', etc.
+
+    For 'variant' and 'see_also' (the symmetric 'see also' family), the
+    relation is stored as a single row but treated as bidirectional by the
+    word detail endpoint — see GET /api/words/{slug}.
     """
     if not suggestion.target_id:
         return
@@ -270,14 +354,15 @@ async def _apply_relation(
     except (ValueError, AttributeError):
         pass
 
-    # If not found by ID, try by headword or normalized_form
+    # If not found by ID, try by headword, slug, or normalized_form
     if related is None:
         normalized = _normalize_form(str(related_word))
         result = await db.execute(
             select(Word).where(
                 Word.status == "live",
                 (Word.headword.ilike(str(related_word)))
-                | (Word.normalized_form == normalized),
+                | (Word.normalized_form == normalized)
+                | (Word.slug == str(related_word).lower()),
             )
         )
         related = result.scalar_one_or_none()
@@ -286,14 +371,27 @@ async def _apply_relation(
         # Related word doesn't exist — can't create the relation
         return
 
-    # ── Check if this relation already exists ─────────────────
-    existing = await db.execute(
-        select(WordRelation).where(
-            WordRelation.from_word_id == suggestion.target_id,
-            WordRelation.to_word_id == related.id,
-            WordRelation.relation_type == relation_type,
+    # ── Check if this relation already exists (in either direction
+    #    for symmetric types like 'variant' and 'see_also') ─────
+    symmetric = relation_type in ("variant", "see_also")
+    if symmetric:
+        existing = await db.execute(
+            select(WordRelation).where(
+                WordRelation.relation_type == relation_type,
+                (
+                    ((WordRelation.from_word_id == suggestion.target_id) & (WordRelation.to_word_id == related.id))
+                    | ((WordRelation.from_word_id == related.id) & (WordRelation.to_word_id == suggestion.target_id))
+                ),
+            )
         )
-    )
+    else:
+        existing = await db.execute(
+            select(WordRelation).where(
+                WordRelation.from_word_id == suggestion.target_id,
+                WordRelation.to_word_id == related.id,
+                WordRelation.relation_type == relation_type,
+            )
+        )
     if existing.scalar_one_or_none() is not None:
         return  # relation already exists
 
@@ -340,6 +438,8 @@ async def check_and_promote(db: AsyncSession, suggestion: Suggestion) -> bool:
         await _apply_word_correction(db, suggestion, actor_id=None)
     elif suggestion.target_type == "gloss":
         await _apply_gloss(db, suggestion, actor_id=None)
+    elif suggestion.target_type == "example":
+        await _apply_example(db, suggestion, actor_id=None)
     elif suggestion.target_type == "relation":
         await _apply_relation(db, suggestion, actor_id=None)
     else:

@@ -263,6 +263,7 @@ async def test_create_word_duplicate_returns_409(client_authed, mock_db):
     existing.id = uuid.uuid4()
     existing.headword = "mlima"
     existing.status = "live"
+    existing.slug = "mlima"
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = existing
     mock_db.execute = AsyncMock(return_value=mock_result)
@@ -273,8 +274,9 @@ async def test_create_word_duplicate_returns_409(client_authed, mock_db):
     )
 
     assert response.status_code == 409
-    # Detail is now a structured object with existing_word_id
+    # Detail is now a structured object with existing_word_id + existing_slug
     detail = response.json()["detail"]
     assert isinstance(detail, dict)
     assert "existing_word_id" in detail
     assert detail["existing_headword"] == "mlima"
+    assert detail["existing_slug"] == "mlima"

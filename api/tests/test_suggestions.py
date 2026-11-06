@@ -175,7 +175,17 @@ async def test_create_suggestion_new_word_authed(client_authed, mock_db):
 @pytest.mark.asyncio
 async def test_create_suggestion_word_correction_authed(client_authed, mock_db):
     """Authenticated reviewer can suggest a word correction."""
+    from app.models import Word
+
     word_id = uuid.uuid4()
+    # Mock: the target_id existence check finds a live word
+    existing_word = MagicMock(spec=Word)
+    existing_word.id = word_id
+    existing_word.headword = "mlima"
+    existing_word.status = "live"
+    existing_word.slug = "mlima"
+    mock_db.execute = AsyncMock(return_value=MockResult(value=existing_word))
+
     response = await client_authed.post(
         "/api/suggestions",
         json={
@@ -192,6 +202,25 @@ async def test_create_suggestion_word_correction_authed(client_authed, mock_db):
     assert data["target_type"] == "word"
     assert data["target_id"] == str(word_id)
     assert data["field_path"] == "headword"
+
+
+@pytest.mark.asyncio
+async def test_create_suggestion_word_correction_unknown_target(client_authed, mock_db):
+    """Suggesting a correction to a non-existent word returns 404."""
+    word_id = uuid.uuid4()
+    mock_db.execute = AsyncMock(return_value=MockResult(value=None))
+
+    response = await client_authed.post(
+        "/api/suggestions",
+        json={
+            "target_type": "word",
+            "target_id": str(word_id),
+            "field_path": "headword",
+            "proposed_value": {"value": "mlima_corrected"},
+        },
+    )
+
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio

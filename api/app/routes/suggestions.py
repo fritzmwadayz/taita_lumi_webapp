@@ -1,19 +1,18 @@
-"""Suggestion endpoints: create, list, detail.
+"""Suggestion endpoints: create, list, detail, decide.
 
-Phase 3 supports:
+Supported target types:
   POST /api/suggestions          — create a suggestion (anon or contributor)
   GET  /api/suggestions          — list suggestions (public read)
   GET  /api/suggestions/{id}     — get a single suggestion (public read)
-
-Voting (POST /api/suggestions/{id}/vote) comes in Phase 4.
-Admin accept/reject (POST /api/suggestions/{id}/decide) comes in Phase 6.
+  POST /api/suggestions/{id}/decide — reviewer/admin accept or reject
 
 Anon users are identified by the X-Session-Cookie header (a random UUID
 the frontend generates and stores in localStorage). Anon suggestions
 are rate-limited: 5 per hour per session, 10 per hour per IP.
 
 Contributors are authenticated via JWT. Their suggestions have
-created_by_user_id set; rate limiting does not apply.
+created_by_user_id set; rate limiting applies only to role='user'
+(reviewer/admin are unlimited).
 """
 
 from __future__ import annotations
@@ -28,8 +27,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.anon import check_rate_limit, check_registered_user_rate_limit, get_or_create_anon_session
 from app.db import get_db
 from app.deps import get_optional_user, require_reviewer
-from app.models import AnonymousSession, Suggestion, User, Vote, Word
-from app.promote import _apply_gloss, _apply_new_word, _apply_relation, _apply_word_correction
+from app.models import Example, Suggestion, User, Vote, Word
+from app.promote import _apply_example, _apply_gloss, _apply_new_word, _apply_relation, _apply_word_correction
 from app.schemas_suggestion import (
     CreateSuggestionRequest,
     SuggestionListItem,
@@ -106,8 +105,29 @@ def _validate_suggestion(req: CreateSuggestionRequest) -> None:
                 detail="gloss suggestions must include 'text' (the translation) in proposed_value",
             )
 
+    elif req.target_type == "example":
+        # Suggesting a translation for an existing example
+        # target_id is the EXAMPLE UUID (not the word UUID)
+        # proposed_value: { language: 'sw'|'en', text: '...' }
+        if not req.target_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="example suggestions must include target_id (the EXAMPLE UUID)",
+            )
+        lang = req.proposed_value.get("language")
+        if lang not in ("sw", "en"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="example suggestions must include 'language' ('sw' or 'en') in proposed_value",
+            )
+        if not req.proposed_value.get("text"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="example suggestions must include 'text' (the translation) in proposed_value",
+            )
+
     elif req.target_type == "relation":
-        # Linking this word to another word (variation, conjugation, etc.)
+        # Linking this word to another word (variation, see_also, etc.)
         # proposed_value must contain related_word (headword or ID) and relation_type
         if not req.target_id:
             raise HTTPException(
@@ -158,6 +178,28 @@ async def _get_vote_counts(
     return counts
 
 
+async def _get_user_votes(
+    db: AsyncSession, suggestion_ids: list[UUID], user_id: UUID | None
+) -> dict[UUID, str | None]:
+    """Batch-fetch the current user's vote on each suggestion.
+
+    Returns {suggestion_id: 'up' | 'down' | None}.
+    If user_id is None, returns all-None.
+    """
+    if not suggestion_ids or user_id is None:
+        return {sid: None for sid in suggestion_ids}
+
+    stmt = select(Vote).where(
+        Vote.suggestion_id.in_(suggestion_ids),
+        Vote.user_id == user_id,
+    )
+    result = await db.execute(stmt)
+    votes: dict[UUID, str | None] = {sid: None for sid in suggestion_ids}
+    for vote in result.scalars().all():
+        votes[vote.suggestion_id] = vote.vote
+    return votes
+
+
 def _author_display(
     user_id: UUID | None,
     session_id: UUID | None,
@@ -184,7 +226,6 @@ async def create_suggestion(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_optional_user),
-    x_session_cookie: str | None = None,
 ):
     """Create a new suggestion.
 
@@ -205,8 +246,6 @@ async def create_suggestion(
         )
 
     # ── Duplicate check for new_word suggestions ─────────────
-    # If the word already exists, return 409 with the existing word's ID
-    # so the frontend can show "This word already exists. [See word →]"
     if req.target_type == "new_word":
         headword = (req.proposed_value.get("headword") or "").strip()
         normalized = _normalize_form(headword)
@@ -225,8 +264,29 @@ async def create_suggestion(
                         "message": "This word already exists in the dictionary.",
                         "existing_word_id": str(existing.id),
                         "existing_headword": existing.headword,
+                        "existing_slug": existing.slug,
                     },
                 )
+
+    # ── Validate target_id existence for example/gloss/relation/word ──
+    if req.target_type == "example":
+        ex_result = await db.execute(
+            select(Example).where(Example.id == req.target_id)
+        )
+        if ex_result.scalar_one_or_none() is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Example not found",
+            )
+    elif req.target_type in ("gloss", "relation", "word"):
+        w_result = await db.execute(
+            select(Word).where(Word.id == req.target_id, Word.status == "live")
+        )
+        if w_result.scalar_one_or_none() is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Word not found",
+            )
 
     # ── Resolve the actor + apply rate limiting ──────────────
     if current_user is not None:
@@ -235,7 +295,6 @@ async def create_suggestion(
         created_by_session_id = None
 
         # Only rate-limit non-reviewer registered users
-        # Reviewers and admins are unlimited
         if current_user.role == "user":
             check_registered_user_rate_limit(current_user.id)
     else:
@@ -277,7 +336,6 @@ async def create_suggestion(
         rationale=suggestion.rationale,
         status=suggestion.status,
         created_by_user_id=suggestion.created_by_user_id,
-        created_by_session_id=suggestion.created_by_session_id,
         created_at=suggestion.created_at,
         decided_at=suggestion.decided_at,
         decided_by_user_id=suggestion.decided_by_user_id,
@@ -287,6 +345,7 @@ async def create_suggestion(
         ),
         upvotes=0,
         downvotes=0,
+        user_vote=None,
     )
 
 
@@ -302,11 +361,12 @@ async def list_suggestions(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_user),
 ):
     """List suggestions with optional filters and pagination.
 
-    Public read — no auth required.
-    Default: open suggestions, sorted by most recent.
+    Public read — no auth required. If the caller is authenticated,
+    `user_vote` is populated on each item with their vote ('up'|'down'|None).
     """
     stmt = select(Suggestion)
 
@@ -329,8 +389,10 @@ async def list_suggestions(
     result = await db.execute(stmt)
     suggestions = result.scalars().all()
 
-    # ── Batch-fetch vote counts ───────────────────────────────
-    vote_counts = await _get_vote_counts(db, [s.id for s in suggestions])
+    # ── Batch-fetch vote counts + current user's votes ────────
+    sugg_ids = [s.id for s in suggestions]
+    vote_counts = await _get_vote_counts(db, sugg_ids)
+    user_votes = await _get_user_votes(db, sugg_ids, current_user.id if current_user else None)
 
     # ── Build response ────────────────────────────────────────
     items = [
@@ -343,11 +405,13 @@ async def list_suggestions(
             rationale=s.rationale,
             status=s.status,
             created_at=s.created_at,
+            created_by_user_id=s.created_by_user_id,
             author_display=_author_display(
                 s.created_by_user_id, s.created_by_session_id
             ),
             upvotes=vote_counts.get(s.id, {}).get("up", 0),
             downvotes=vote_counts.get(s.id, {}).get("down", 0),
+            user_vote=user_votes.get(s.id),
         )
         for s in suggestions
     ]
@@ -370,6 +434,7 @@ async def list_suggestions(
 async def get_suggestion(
     suggestion_id: UUID,
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_user),
 ):
     """Get a single suggestion by ID. Public read."""
     result = await db.execute(
@@ -383,8 +448,11 @@ async def get_suggestion(
             detail="Suggestion not found",
         )
 
-    # ── Fetch vote counts for this suggestion ─────────────────
+    # ── Fetch vote counts + current user's vote ───────────────
     vote_counts = await _get_vote_counts(db, [suggestion.id])
+    user_votes = await _get_user_votes(
+        db, [suggestion.id], current_user.id if current_user else None
+    )
 
     return SuggestionResponse(
         id=suggestion.id,
@@ -395,7 +463,6 @@ async def get_suggestion(
         rationale=suggestion.rationale,
         status=suggestion.status,
         created_by_user_id=suggestion.created_by_user_id,
-        created_by_session_id=suggestion.created_by_session_id,
         created_at=suggestion.created_at,
         decided_at=suggestion.decided_at,
         decided_by_user_id=suggestion.decided_by_user_id,
@@ -405,6 +472,7 @@ async def get_suggestion(
         ),
         upvotes=vote_counts.get(suggestion.id, {}).get("up", 0),
         downvotes=vote_counts.get(suggestion.id, {}).get("down", 0),
+        user_vote=user_votes.get(suggestion.id),
     )
 
 
@@ -431,6 +499,9 @@ async def decide_suggestion(
     Accepting applies the suggestion to the word graph immediately
     (same as auto-promote, but without the voting threshold).
     Rejecting closes it without applying.
+
+    An audit-log entry is written for the decision itself
+    (action='suggestion.accept' or 'suggestion.reject').
     """
     if req.decision not in ("accept", "reject"):
         raise HTTPException(
@@ -463,6 +534,8 @@ async def decide_suggestion(
             await _apply_word_correction(db, suggestion, actor_id=current_user.id)
         elif suggestion.target_type == "gloss":
             await _apply_gloss(db, suggestion, actor_id=current_user.id)
+        elif suggestion.target_type == "example":
+            await _apply_example(db, suggestion, actor_id=current_user.id)
         elif suggestion.target_type == "relation":
             await _apply_relation(db, suggestion, actor_id=current_user.id)
 
@@ -473,6 +546,26 @@ async def decide_suggestion(
 
     suggestion.decided_at = now
     suggestion.decided_by_user_id = current_user.id
+
+    # ── Audit log: the decision itself (separate from the
+    #    applied-change log that _apply_* writes) ──────────────
+    from app.models import EditLog
+
+    db.add(
+        EditLog(
+            actor_user_id=current_user.id,
+            action="suggestion.accept" if req.decision == "accept" else "suggestion.reject",
+            entity_type="suggestion",
+            entity_id=suggestion.id,
+            after={
+                "decision": req.decision,
+                "target_type": suggestion.target_type,
+                "target_id": str(suggestion.target_id) if suggestion.target_id else None,
+                "decided_by": str(current_user.id),
+                "decided_by_email": current_user.email,
+            },
+        )
+    )
 
     await db.commit()
 

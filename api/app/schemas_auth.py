@@ -75,3 +75,4 @@ class UserResponse(BaseModel):
     role: str
     created_at: datetime
     last_seen_at: datetime | None = None
+    oauth_provider: str | None = None

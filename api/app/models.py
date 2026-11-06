@@ -100,6 +100,7 @@ class Word(Base):
     )
     headword: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     normalized_form: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    slug: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)
     part_of_speech: Mapped[str | None] = mapped_column(Text, nullable=True)
     noun_class: Mapped[str | None] = mapped_column(Text, nullable=True)
     dialect: Mapped[str | None] = mapped_column(Text, nullable=True)

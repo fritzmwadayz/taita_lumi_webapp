@@ -2,6 +2,29 @@
 audit log, dashboard stats.
 
 All endpoints require admin role (via require_admin dependency).
+
+Audit log shape mapping (DB → API):
+  The DB table `edit_log` has columns:
+    actor_user_id, actor_session_id, action, entity_type, entity_id, before, after
+
+  The public API shape (integration doc 4.8) is:
+    actor_id, actor_email, actor_role, action, target_type, target_id, details
+
+  The mapping is done at the route layer:
+    - actor_user_id    → actor_id
+    - JOIN users       → actor_email, actor_role
+    - action           → mapped via _map_action() to dotted namespace
+    - entity_type      → target_type
+    - entity_id        → target_id
+    - before + after   → merged into a single `details` JSON
+
+  Action namespace (public):
+    word.create, word.update, word.hide, word.merge, word.import
+    gloss.create
+    example.update
+    relation.create
+    suggestion.accept, suggestion.reject
+    user.role.change, user.block, user.unblock
 """
 
 from __future__ import annotations
@@ -19,6 +42,7 @@ from app.db import get_db
 from app.deps import require_admin
 from app.models import (
     EditLog,
+    Example,
     Gloss,
     Suggestion,
     User,
@@ -26,7 +50,8 @@ from app.models import (
     Word,
     WordRelation,
 )
-from app.promote import _apply_gloss, _apply_new_word, _apply_relation, _apply_word_correction
+from app.promote import _apply_example, _apply_gloss, _apply_new_word, _apply_relation, _apply_word_correction
+from app.schemas import WordListItem
 from app.schemas_admin import (
     AdminUserListResponse,
     AdminUserResponse,
@@ -36,8 +61,10 @@ from app.schemas_admin import (
     DecideSuggestionRequest,
     EditWordRequest,
     MergeWordsRequest,
+    RecentSuggestionItem,
     UpdateUserRequest,
 )
+from app.slugs import generate_unique_slug
 
 router = APIRouter()
 
@@ -55,6 +82,92 @@ def _normalize_form(text: str) -> str:
     text = re.sub(r"[^a-z']", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+def _map_action(db_action: str, entity_type: str, after: dict | None) -> str:
+    """Map an internal edit_log action to the public dotted namespace.
+
+    Internal actions stored in the DB are bare verbs: 'create', 'update',
+    'delete', 'import', 'merge', 'suggestion.accept', 'suggestion.reject',
+    'user.role.change', 'user.block', 'user.unblock'.
+
+    For the bare-verb cases, we qualify them with the entity_type to get
+    the public dotted form (e.g. 'create' on a 'word' → 'word.create').
+
+    The qualified forms (suggestion.accept, user.role.change, etc.) are
+    written directly by the routes that produce them and pass through
+    unchanged.
+
+    Special case: 'delete' on a word is rendered as 'word.hide' (since
+    soft-delete is the only delete path), or 'word.merge' if the after
+    payload indicates a merge.
+    """
+    # Already-qualified actions pass through
+    if "." in db_action:
+        return db_action
+
+    if db_action == "delete":
+        # 'delete' on a word is either a hide (after.status='hidden')
+        # or a merge (after.status='merged'). We can't always tell from
+        # the after payload alone because merge writes its own row with
+        # action='merge'. So 'delete' → 'word.hide' is the safe default.
+        if entity_type == "word":
+            return "word.hide"
+        return f"{entity_type}.delete"
+
+    if db_action == "merge":
+        return "word.merge"
+
+    # Bare verbs qualified with entity_type
+    return f"{entity_type}.{db_action}"
+
+
+def _build_audit_entry(
+    e: EditLog,
+    actor_email: str | None,
+    actor_role: str | None,
+) -> AuditLogEntry:
+    """Convert an EditLog row to the public AuditLogEntry shape."""
+    # Merge before + after into a single `details` payload.
+    # If both are None, details is None. If only one is present, details
+    # is just that dict. If both, details = {before: ..., after: ...}.
+    if e.before is None and e.after is None:
+        details = None
+    elif e.before is None:
+        details = e.after
+    elif e.after is None:
+        details = e.before
+    else:
+        details = {"before": e.before, "after": e.after}
+
+    return AuditLogEntry(
+        id=e.id,
+        created_at=e.created_at,
+        actor_id=e.actor_user_id,
+        actor_email=actor_email,
+        actor_role=actor_role,
+        action=_map_action(e.action, e.entity_type, e.after),
+        target_type=e.entity_type,
+        target_id=e.entity_id,
+        details=details,
+    )
+
+
+async def _resolve_actor_emails(
+    db: AsyncSession, entries: list[EditLog]
+) -> dict[UUID, tuple[str | None, str | None]]:
+    """Batch-fetch email + role for all distinct actors in the entries.
+
+    Returns {actor_user_id: (email, role)}.
+    """
+    actor_ids = {e.actor_user_id for e in entries if e.actor_user_id is not None}
+    if not actor_ids:
+        return {}
+
+    result = await db.execute(
+        select(User.id, User.email, User.role).where(User.id.in_(actor_ids))
+    )
+    return {row.id: (row.email, row.role) for row in result.all()}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -92,7 +205,7 @@ async def get_stats(
 
     total_votes = await db.scalar(select(func.count()).select_from(Vote)) or 0
 
-    # Recent words (last 5)
+    # Recent words (last 5) — full WordListItem shape
     recent_words_result = await db.execute(
         select(Word)
         .where(Word.status == "live")
@@ -100,15 +213,41 @@ async def get_stats(
         .limit(5)
         .options(selectinload(Word.glosses))
     )
-    recent_words = []
-    for w in recent_words_result.scalars().unique().all():
+    recent_word_rows = recent_words_result.scalars().unique().all()
+
+    # Batch-check which recent words have relations
+    recent_word_ids = [w.id for w in recent_word_rows]
+    if recent_word_ids:
+        out_subq = (
+            select(WordRelation.from_word_id.label("word_id"))
+            .where(WordRelation.from_word_id.in_(recent_word_ids))
+        )
+        in_subq = (
+            select(WordRelation.to_word_id.label("word_id"))
+            .where(WordRelation.to_word_id.in_(recent_word_ids))
+        )
+        rel_result = await db.execute(
+            select(out_subq.union(in_subq).subquery().c.word_id)
+        )
+        recent_with_relations = {row[0] for row in rel_result.all()}
+    else:
+        recent_with_relations = set()
+
+    recent_words: list[WordListItem] = []
+    for w in recent_word_rows:
         sw_gloss = next((g.text for g in w.glosses if g.language == "sw"), None)
-        recent_words.append({
-            "id": str(w.id),
-            "headword": w.headword,
-            "swahili_gloss": sw_gloss,
-            "created_at": w.created_at.isoformat(),
-        })
+        en_gloss = next((g.text for g in w.glosses if g.language == "en"), None)
+        recent_words.append(WordListItem(
+            id=w.id,
+            slug=w.slug,
+            headword=w.headword,
+            part_of_speech=w.part_of_speech,
+            noun_class=w.noun_class,
+            dialect=w.dialect,
+            swahili_gloss=sw_gloss,
+            english_gloss=en_gloss,
+            has_relations=w.id in recent_with_relations,
+        ))
 
     # Recent suggestions (last 5)
     recent_sugg_result = await db.execute(
@@ -116,15 +255,18 @@ async def get_stats(
         .order_by(Suggestion.created_at.desc())
         .limit(5)
     )
-    recent_suggestions = []
+    recent_suggestions: list[RecentSuggestionItem] = []
     for s in recent_sugg_result.scalars().all():
-        recent_suggestions.append({
-            "id": str(s.id),
-            "target_type": s.target_type,
-            "status": s.status,
-            "headword": s.proposed_value.get("headword") if isinstance(s.proposed_value, dict) else None,
-            "created_at": s.created_at.isoformat(),
-        })
+        headword = None
+        if isinstance(s.proposed_value, dict):
+            headword = s.proposed_value.get("headword")
+        recent_suggestions.append(RecentSuggestionItem(
+            id=s.id,
+            headword=headword,
+            target_type=s.target_type,
+            status=s.status,
+            created_at=s.created_at,
+        ))
 
     return DashboardStats(
         total_words=total_words,
@@ -207,7 +349,8 @@ async def update_user(
 ):
     """Update a user's role or blocked status. Admin only.
 
-    Cannot block or demote yourself.
+    Cannot block or demote yourself. Writes an audit-log entry for
+    every role or blocked-status change.
     """
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
@@ -221,16 +364,49 @@ async def update_user(
             detail="You cannot modify your own account.",
         )
 
+    before = {}
+    after = {}
+
     if req.role is not None:
         if req.role not in ("user", "reviewer", "admin"):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Role must be 'user', 'reviewer', or 'admin'",
             )
-        user.role = req.role
+        if user.role != req.role:
+            before["role"] = user.role
+            user.role = req.role
+            after["role"] = req.role
 
     if req.is_blocked is not None:
-        user.is_blocked = req.is_blocked
+        if user.is_blocked != req.is_blocked:
+            before["is_blocked"] = user.is_blocked
+            user.is_blocked = req.is_blocked
+            after["is_blocked"] = req.is_blocked
+
+    # ── Audit log for role change / block / unblock ───────────
+    if before or after:
+        # Decide on the dotted action name
+        if "role" in after and "is_blocked" not in after:
+            action = "user.role.change"
+        elif "is_blocked" in after and after["is_blocked"] is True:
+            action = "user.block"
+        elif "is_blocked" in after and after["is_blocked"] is False:
+            action = "user.unblock"
+        else:
+            # Both changed — log as role.change (the more material change)
+            action = "user.role.change"
+
+        db.add(
+            EditLog(
+                actor_user_id=admin.id,
+                action=action,
+                entity_type="user",
+                entity_id=user.id,
+                before=before or None,
+                after={**after, "by_admin": admin.email},
+            )
+        )
 
     await db.commit()
     await db.refresh(user)
@@ -262,6 +438,9 @@ async def decide_suggestion(
 
     Accepting applies the suggestion to the word graph (same as auto-promote).
     Rejecting closes it without applying.
+
+    An audit-log entry is written for the decision itself
+    (action='suggestion.accept' or 'suggestion.reject').
     """
     if req.decision not in ("accept", "reject"):
         raise HTTPException(
@@ -292,6 +471,8 @@ async def decide_suggestion(
             await _apply_word_correction(db, suggestion, actor_id=admin.id)
         elif suggestion.target_type == "gloss":
             await _apply_gloss(db, suggestion, actor_id=admin.id)
+        elif suggestion.target_type == "example":
+            await _apply_example(db, suggestion, actor_id=admin.id)
         elif suggestion.target_type == "relation":
             await _apply_relation(db, suggestion, actor_id=admin.id)
 
@@ -302,6 +483,23 @@ async def decide_suggestion(
 
     suggestion.decided_at = now
     suggestion.decided_by_user_id = admin.id
+
+    # ── Audit log: the decision itself ────────────────────────
+    db.add(
+        EditLog(
+            actor_user_id=admin.id,
+            action="suggestion.accept" if req.decision == "accept" else "suggestion.reject",
+            entity_type="suggestion",
+            entity_id=suggestion.id,
+            after={
+                "decision": req.decision,
+                "target_type": suggestion.target_type,
+                "target_id": str(suggestion.target_id) if suggestion.target_id else None,
+                "decided_by": str(admin.id),
+                "decided_by_email": admin.email,
+            },
+        )
+    )
 
     await db.commit()
 
@@ -329,11 +527,17 @@ async def edit_word(
 
     Gloss fields (swahili_gloss, english_gloss) update the corresponding
     Gloss rows — creates them if they don't exist.
+
+    If `examples` is provided, it REPLACES the word's example set: existing
+    examples not in the list are deleted, examples with a matching `id` are
+    updated, examples without an `id` are created.
+
+    Returns {id, slug, updated_fields}.
     """
     result = await db.execute(
         select(Word)
         .where(Word.id == word_id)
-        .options(selectinload(Word.glosses))
+        .options(selectinload(Word.glosses), selectinload(Word.examples))
     )
     word = result.scalar_one_or_none()
     if word is None:
@@ -345,9 +549,14 @@ async def edit_word(
     # ── Scalar fields ─────────────────────────────────────────
     if req.headword is not None:
         before["headword"] = word.headword
+        before["slug"] = word.slug
         word.headword = req.headword.strip()
         word.normalized_form = _normalize_form(req.headword)
+        word.slug = await generate_unique_slug(
+            db, req.headword, exclude_word_id=word.id
+        )
         after["headword"] = word.headword
+        after["slug"] = word.slug
 
     if req.part_of_speech is not None:
         before["part_of_speech"] = word.part_of_speech
@@ -395,6 +604,44 @@ async def edit_word(
             db.add(en_gloss)
         after["english_gloss"] = req.english_gloss.strip()
 
+    # ── Examples (replace strategy) ───────────────────────────
+    if req.examples is not None:
+        existing_by_id = {e.id: e for e in word.examples}
+        kept_ids = {ex.id for ex in req.examples if ex.id is not None}
+
+        # Delete examples not in the new set
+        for ex_id, ex_obj in existing_by_id.items():
+            if ex_id not in kept_ids:
+                await db.delete(ex_obj)
+
+        before["examples"] = [
+            {"id": str(e.id), "taita_text": e.taita_text} for e in word.examples
+        ]
+        after["examples"] = []
+
+        for ex in req.examples:
+            if ex.id is not None and ex.id in existing_by_id:
+                ex_obj = existing_by_id[ex.id]
+                ex_obj.taita_text = ex.taita_text.strip()
+                ex_obj.swahili_text = ex.swahili_text.strip() if ex.swahili_text else None
+                ex_obj.english_text = ex.english_text.strip() if ex.english_text else None
+                ex_obj.source_ref = ex.source_ref
+            else:
+                new_ex = Example(
+                    word_id=word.id,
+                    taita_text=ex.taita_text.strip(),
+                    swahili_text=ex.swahili_text.strip() if ex.swahili_text else None,
+                    english_text=ex.english_text.strip() if ex.english_text else None,
+                    source_ref=ex.source_ref,
+                )
+                db.add(new_ex)
+            after["examples"].append({
+                "id": str(ex.id) if ex.id else None,
+                "taita_text": ex.taita_text,
+                "swahili_text": ex.swahili_text,
+                "english_text": ex.english_text,
+            })
+
     # ── Audit log ─────────────────────────────────────────────
     if before or after:
         word.reviewed_at = datetime.now(timezone.utc)
@@ -406,13 +653,13 @@ async def edit_word(
                 entity_type="word",
                 entity_id=word.id,
                 before=before or None,
-                after={**after, "source": "admin_edit"},
+                after={**after, "source": "admin_edit", "by_admin": admin.email},
             )
         )
 
     await db.commit()
 
-    return {"id": str(word.id), "updated_fields": list(after.keys())}
+    return {"id": str(word.id), "slug": word.slug, "updated_fields": list(after.keys())}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -426,7 +673,10 @@ async def hide_word(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """Soft-delete a word (set status='hidden'). Admin only."""
+    """Soft-delete a word (set status='hidden'). Admin only.
+
+    Audit-logged as action='word.hide'.
+    """
     result = await db.execute(select(Word).where(Word.id == word_id))
     word = result.scalar_one_or_none()
     if word is None:
@@ -438,11 +688,11 @@ async def hide_word(
     db.add(
         EditLog(
             actor_user_id=admin.id,
-            action="delete",
+            action="delete",  # _map_action() will surface this as 'word.hide'
             entity_type="word",
             entity_id=word.id,
             before=before,
-            after={"status": "hidden", "source": "admin_hide"},
+            after={"status": "hidden", "source": "admin_hide", "by_admin": admin.email},
         )
     )
 
@@ -467,7 +717,7 @@ async def merge_words(
     - Source word's relations are re-pointed to the target
     - Source word's glosses and examples are moved to the target (if not duplicates)
     - Source word is set to status='merged'
-    - Audit log entry written
+    - Audit log entry written (action='word.merge')
     """
     if req.source_id == req.target_id:
         raise HTTPException(
@@ -496,7 +746,6 @@ async def merge_words(
         raise HTTPException(status_code=404, detail="Target word not found")
 
     # ── Re-point relations from source → target ───────────────
-    # Outgoing: source.from_word_id → change to target
     out_result = await db.execute(
         select(WordRelation).where(WordRelation.from_word_id == source.id)
     )
@@ -504,7 +753,6 @@ async def merge_words(
         if rel.to_word_id != target.id:  # don't create self-relation
             rel.from_word_id = target.id
 
-    # Incoming: source.to_word_id → change to target
     in_result = await db.execute(
         select(WordRelation).where(WordRelation.to_word_id == source.id)
     )
@@ -530,11 +778,11 @@ async def merge_words(
     db.add(
         EditLog(
             actor_user_id=admin.id,
-            action="merge",
+            action="merge",  # _map_action() will surface this as 'word.merge'
             entity_type="word",
             entity_id=target.id,
             before={"merged_from": str(source.id), "source_headword": source.headword},
-            after={"target_headword": target.headword, "source": "admin_merge"},
+            after={"target_headword": target.headword, "source": "admin_merge", "by_admin": admin.email},
         )
     )
 
@@ -542,6 +790,7 @@ async def merge_words(
 
     return {
         "merged_into": str(target.id),
+        "merged_into_slug": target.slug,
         "hidden": str(source.id),
         "target_headword": target.headword,
     }
@@ -562,7 +811,16 @@ async def get_audit_log(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """Query the audit log. Admin only."""
+    """Query the audit log. Admin only.
+
+    Returns entries in the public API shape (4.8):
+      {id, created_at, actor_id, actor_email, actor_role,
+       action, target_type, target_id, details}
+
+    The `action` filter accepts either the internal DB form ('create',
+    'update', 'delete', 'merge', 'import') or the public dotted form
+    ('word.create', 'word.hide', 'user.role.change', etc.).
+    """
     stmt = select(EditLog)
 
     if entity_type:
@@ -570,7 +828,14 @@ async def get_audit_log(
     if entity_id:
         stmt = stmt.where(EditLog.entity_id == entity_id)
     if action:
-        stmt = stmt.where(EditLog.action == action)
+        # Accept both bare and dotted forms: 'word.create' or 'create'
+        if "." in action:
+            # Dotted — strip the entity prefix and match the bare verb
+            # (the dotted form is computed by _map_action at read time)
+            bare = action.split(".", 1)[1]
+            stmt = stmt.where(EditLog.action == bare)
+        else:
+            stmt = stmt.where(EditLog.action == action)
 
     # Count
     count_stmt = select(func.count()).select_from(stmt.subquery())
@@ -582,17 +847,14 @@ async def get_audit_log(
     result = await db.execute(stmt)
     entries = result.scalars().all()
 
+    # ── Batch-resolve actor email + role ──────────────────────
+    actor_map = await _resolve_actor_emails(db, entries)
+
     items = [
-        AuditLogEntry(
-            id=e.id,
-            actor_user_id=e.actor_user_id,
-            actor_session_id=e.actor_session_id,
-            action=e.action,
-            entity_type=e.entity_type,
-            entity_id=e.entity_id,
-            before=e.before,
-            after=e.after,
-            created_at=e.created_at,
+        _build_audit_entry(
+            e,
+            actor_email=actor_map.get(e.actor_user_id, (None, None))[0] if e.actor_user_id else None,
+            actor_role=actor_map.get(e.actor_user_id, (None, None))[1] if e.actor_user_id else None,
         )
         for e in entries
     ]

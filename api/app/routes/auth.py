@@ -196,14 +196,18 @@ async def refresh_token(
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get the current user's profile.
 
     Requires Authorization: Bearer <access_token>.
     """
-    # ── Update last_seen_at (cheap write, no commit needed if
-    #    we're okay with it being best-effort) ────────────────
+    # ── Update last_seen_at (best-effort; not critical if it fails) ──
+    current_user.last_seen_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(current_user)
+
     return UserResponse.model_validate(current_user)
 
 

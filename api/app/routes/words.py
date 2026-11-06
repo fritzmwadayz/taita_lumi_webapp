@@ -1,9 +1,10 @@
-"""Word endpoints: list, detail, search, create.
+"""Word endpoints: list, detail, search, create, edit.
 
-  GET  /api/words          — paginated list with optional filters
-  GET  /api/words/{id}     — full word detail
-  GET  /api/search?q=      — fuzzy search using pg_trgm
-  POST /api/words          — contributor creates a live word directly
+  GET   /api/words                 — paginated list with optional filters
+  GET   /api/words/{slug_or_id}    — full word detail (accepts slug OR uuid)
+  GET   /api/search?q=             — fuzzy search using pg_trgm
+  POST  /api/words                 — reviewer+ creates a live word directly
+  PATCH /api/words/{id}            — reviewer+ edits a word's fields
 """
 
 from __future__ import annotations
@@ -18,9 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db import get_db
-from app.deps import require_reviewer, require_user
+from app.deps import require_reviewer
 from app.models import EditLog, Example, Gloss, Suggestion, User, Word, WordRelation
 from app.schemas import (
+    ExampleOut,
     GlossOut,
     RelationOut,
     SearchResponse,
@@ -29,18 +31,36 @@ from app.schemas import (
     WordListItem,
     WordListResponse,
 )
+from app.slugs import generate_unique_slug
 from pydantic import BaseModel, Field
 
 router = APIRouter()
 
 
 # ═══════════════════════════════════════════════════════════════
-# Create word request schema
+# Create / edit word request schemas
 # ═══════════════════════════════════════════════════════════════
 
 
+class ExampleInput(BaseModel):
+    """An example provided when creating or editing a word.
+
+    If `id` is provided on edit, the existing example is updated; otherwise
+    a new example is created. Translations are paired: taita_text is
+    required, swahili_text and english_text are optional (the frontend will
+    offer readers a non-confrontational option to suggest missing ones via
+    POST /api/suggestions with target_type='example').
+    """
+
+    id: UUID | None = None
+    taita_text: str = Field(..., min_length=1)
+    swahili_text: str | None = None
+    english_text: str | None = None
+    source_ref: str | None = None
+
+
 class CreateWordRequest(BaseModel):
-    """Request body for POST /api/words — contributor adds a live word."""
+    """Request body for POST /api/words — reviewer adds a live word."""
 
     headword: str = Field(..., min_length=1, max_length=200)
     part_of_speech: str | None = None
@@ -50,6 +70,26 @@ class CreateWordRequest(BaseModel):
     morphology_notes: str | None = None
     swahili_gloss: str | None = None
     english_gloss: str | None = None
+    examples: list[ExampleInput] | None = None
+
+
+class EditWordRequest(BaseModel):
+    """Edit a word's fields. All fields optional — only provided fields are updated.
+
+    `examples` (if provided) REPLACES the word's example set: existing examples
+    not in the list are deleted, examples with a matching `id` are updated,
+    examples without an `id` are created.
+    """
+
+    headword: str | None = None
+    part_of_speech: str | None = None
+    noun_class: str | None = None
+    dialect: str | None = None
+    literal_translation: str | None = None
+    morphology_notes: str | None = None
+    swahili_gloss: str | None = None
+    english_gloss: str | None = None
+    examples: list[ExampleInput] | None = None
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -90,6 +130,104 @@ async def _batch_has_relations(
     return {row[0] for row in result.all()}
 
 
+def _normalize_form(text: str) -> str:
+    """Lowercase + strip non-alpha (keep apostrophes). Mirrors export script."""
+    if not text:
+        return ""
+    text = text.lower()
+    text = re.sub(r"[^a-z']", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _is_uuid(s: str) -> bool:
+    """Return True if `s` looks like a UUID (with or without dashes)."""
+    try:
+        UUID(s)
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
+async def _fetch_word_relations(
+    db: AsyncSession, word_id: UUID
+) -> list[RelationOut]:
+    """Fetch all relations for a word (both directions) as RelationOut list.
+
+    Each relation includes the other word's slug so the frontend can build
+    /words/{slug} links without an extra lookup.
+    """
+    # Outgoing: this word → other
+    out_stmt = (
+        select(WordRelation, Word.headword, Word.slug)
+        .join(Word, WordRelation.to_word_id == Word.id)
+        .where(WordRelation.from_word_id == word_id)
+    )
+    # Incoming: other → this word
+    in_stmt = (
+        select(WordRelation, Word.headword, Word.slug)
+        .join(Word, WordRelation.from_word_id == Word.id)
+        .where(WordRelation.to_word_id == word_id)
+    )
+
+    relations: list[RelationOut] = []
+
+    out_result = await db.execute(out_stmt)
+    for rel, other_headword, other_slug in out_result.all():
+        relations.append(
+            RelationOut(
+                other_word_id=rel.to_word_id,
+                other_headword=other_headword,
+                other_slug=other_slug,
+                relation_type=rel.relation_type,
+                direction="outgoing",
+            )
+        )
+
+    in_result = await db.execute(in_stmt)
+    for rel, other_headword, other_slug in in_result.all():
+        relations.append(
+            RelationOut(
+                other_word_id=rel.from_word_id,
+                other_headword=other_headword,
+                other_slug=other_slug,
+                relation_type=rel.relation_type,
+                direction="incoming",
+            )
+        )
+
+    return relations
+
+
+def _build_word_detail(word: Word) -> WordDetail:
+    """Build a WordDetail response from a Word ORM object (with glosses,
+    examples, and relations already loaded/computed)."""
+    return WordDetail(
+        id=word.id,
+        slug=word.slug,
+        headword=word.headword,
+        part_of_speech=word.part_of_speech,
+        noun_class=word.noun_class,
+        dialect=word.dialect,
+        literal_translation=word.literal_translation,
+        morphology_notes=word.morphology_notes,
+        status=word.status,
+        created_at=word.created_at,
+        glosses=[GlossOut(language=g.language, text=g.text) for g in word.glosses],
+        examples=[
+            ExampleOut(
+                id=e.id,
+                taita_text=e.taita_text,
+                swahili_text=e.swahili_text,
+                english_text=e.english_text,
+                source_ref=e.source_ref,
+            )
+            for e in word.examples
+        ],
+        relations=[],  # populated by caller if needed
+    )
+
+
 # ═══════════════════════════════════════════════════════════════
 # GET /api/words — paginated list with filters
 # ═══════════════════════════════════════════════════════════════
@@ -126,6 +264,7 @@ async def list_words(
             or_(
                 Word.normalized_form.op("%")(normalized_q),
                 Word.headword.ilike(f"%{normalized_q}%"),
+                Word.slug.ilike(f"%{normalized_q}%"),
             )
         )
         # Rank by similarity
@@ -156,6 +295,7 @@ async def list_words(
         items.append(
             WordListItem(
                 id=w.id,
+                slug=w.slug,
                 headword=w.headword,
                 part_of_speech=w.part_of_speech,
                 noun_class=w.noun_class,
@@ -176,23 +316,32 @@ async def list_words(
 
 
 # ═══════════════════════════════════════════════════════════════
-# GET /api/words/{id} — full word detail
+# GET /api/words/{slug_or_id} — full word detail
 # ═══════════════════════════════════════════════════════════════
 
 
-@router.get("/words/{word_id}", response_model=WordDetail)
+@router.get("/words/{slug_or_id}", response_model=WordDetail)
 async def get_word(
-    word_id: UUID,
+    slug_or_id: str,
     db: AsyncSession = Depends(get_db),
 ):
     """Get full detail for a single word.
 
-    Returns 404 if the word doesn't exist or is hidden.
+    Accepts either the slug (e.g. 'mlima') or the UUID — for backward
+    compatibility with old /words/{uuid} URLs.
+
+    Returns 404 if the word doesn't exist or is hidden/merged.
     """
+    # ── Build the lookup condition (slug OR uuid) ─────────────
+    if _is_uuid(slug_or_id):
+        condition = Word.id == UUID(slug_or_id)
+    else:
+        condition = Word.slug == slug_or_id
+
     # ── Fetch the word with glosses and examples eager-loaded ─
     stmt = (
         select(Word)
-        .where(Word.id == word_id, Word.status == "live")
+        .where(condition, Word.status == "live")
         .options(
             selectinload(Word.glosses),
             selectinload(Word.examples),
@@ -204,61 +353,13 @@ async def get_word(
     if word is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Word {word_id} not found",
+            detail=f"Word '{slug_or_id}' not found",
         )
 
-    # ── Fetch relations (both directions) with the other word's headword ─
-    # Outgoing: this word → other
-    out_stmt = (
-        select(WordRelation, Word.headword)
-        .join(Word, WordRelation.to_word_id == Word.id)
-        .where(WordRelation.from_word_id == word_id)
-    )
-    # Incoming: other → this word
-    in_stmt = (
-        select(WordRelation, Word.headword)
-        .join(Word, WordRelation.from_word_id == Word.id)
-        .where(WordRelation.to_word_id == word_id)
-    )
-
-    relations: list[RelationOut] = []
-
-    out_result = await db.execute(out_stmt)
-    for rel, other_headword in out_result.all():
-        relations.append(
-            RelationOut(
-                other_word_id=rel.to_word_id,
-                other_headword=other_headword,
-                relation_type=rel.relation_type,
-                direction="outgoing",
-            )
-        )
-
-    in_result = await db.execute(in_stmt)
-    for rel, other_headword in in_result.all():
-        relations.append(
-            RelationOut(
-                other_word_id=rel.from_word_id,
-                other_headword=other_headword,
-                relation_type=rel.relation_type,
-                direction="incoming",
-            )
-        )
-
-    return WordDetail(
-        id=word.id,
-        headword=word.headword,
-        part_of_speech=word.part_of_speech,
-        noun_class=word.noun_class,
-        dialect=word.dialect,
-        literal_translation=word.literal_translation,
-        morphology_notes=word.morphology_notes,
-        status=word.status,
-        created_at=word.created_at,
-        glosses=[GlossOut(language=g.language, text=g.text) for g in word.glosses],
-        examples=[],  # Phase 1 has no examples; left empty for now
-        relations=relations,
-    )
+    relations = await _fetch_word_relations(db, word.id)
+    detail = _build_word_detail(word)
+    detail.relations = relations
+    return detail
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -293,6 +394,7 @@ async def search_words(
             or_(
                 Word.normalized_form.op("%")(normalized_q),
                 Word.headword.ilike(f"{normalized_q}%"),
+                Word.slug.ilike(f"{normalized_q}%"),
             ),
         )
         .order_by(text("sim DESC"), Word.headword.asc())
@@ -312,6 +414,7 @@ async def search_words(
         items.append(
             SearchResultItem(
                 id=word.id,
+                slug=word.slug,
                 headword=word.headword,
                 part_of_speech=word.part_of_speech,
                 noun_class=word.noun_class,
@@ -327,18 +430,8 @@ async def search_words(
 
 
 # ═══════════════════════════════════════════════════════════════
-# POST /api/words — contributor creates a live word directly
+# POST /api/words — reviewer creates a live word directly
 # ═══════════════════════════════════════════════════════════════
-
-
-def _normalize_form(text: str) -> str:
-    """Lowercase + strip non-alpha (keep apostrophes). Mirrors export script."""
-    if not text:
-        return ""
-    text = text.lower()
-    text = re.sub(r"[^a-z']", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
 
 
 @router.post("/words", response_model=WordDetail, status_code=201)
@@ -370,8 +463,6 @@ async def create_word(
         )
 
     # ── Check for duplicate ───────────────────────────────────
-    # Return the existing word's ID so the frontend can show
-    # "This word already exists. [See word →]"
     existing_result = await db.execute(
         select(Word).where(
             Word.normalized_form == normalized,
@@ -386,13 +477,18 @@ async def create_word(
                 "message": "This word already exists in the dictionary.",
                 "existing_word_id": str(existing.id),
                 "existing_headword": existing.headword,
+                "existing_slug": existing.slug,
             },
         )
+
+    # ── Generate slug ─────────────────────────────────────────
+    slug = await generate_unique_slug(db, headword)
 
     # ── Create the Word ───────────────────────────────────────
     word = Word(
         headword=headword,
         normalized_form=normalized,
+        slug=slug,
         part_of_speech=req.part_of_speech,
         noun_class=req.noun_class,
         dialect=req.dialect,
@@ -411,6 +507,16 @@ async def create_word(
     if req.english_gloss:
         db.add(Gloss(word_id=word.id, language="en", text=req.english_gloss.strip()))
 
+    # ── Examples ──────────────────────────────────────────────
+    for ex in req.examples or []:
+        db.add(Example(
+            word_id=word.id,
+            taita_text=ex.taita_text.strip(),
+            swahili_text=ex.swahili_text.strip() if ex.swahili_text else None,
+            english_text=ex.english_text.strip() if ex.english_text else None,
+            source_ref=ex.source_ref,
+        ))
+
     # ── Audit log ─────────────────────────────────────────────
     db.add(
         EditLog(
@@ -420,6 +526,7 @@ async def create_word(
             entity_id=word.id,
             after={
                 "headword": word.headword,
+                "slug": word.slug,
                 "source": "direct_add",
                 "by_user": current_user.email,
             },
@@ -427,7 +534,6 @@ async def create_word(
     )
 
     # ── Provenance: create an accepted suggestion record ──────
-    # This links the word to its origin (a user direct-add) for audit.
     suggestion = Suggestion(
         target_type="new_word",
         target_id=word.id,
@@ -440,6 +546,7 @@ async def create_word(
             "morphology_notes": req.morphology_notes,
             "swahili_gloss": req.swahili_gloss,
             "english_gloss": req.english_gloss,
+            "examples": [ex.model_dump(mode="json") for ex in req.examples] if req.examples else None,
         },
         rationale=None,
         status="accepted",
@@ -453,7 +560,6 @@ async def create_word(
     await db.commit()
 
     # ── Return the full word detail ───────────────────────────
-    # Re-fetch with glosses loaded
     result = await db.execute(
         select(Word)
         .where(Word.id == word.id)
@@ -464,38 +570,14 @@ async def create_word(
     )
     word = result.scalar_one()
 
-    return WordDetail(
-        id=word.id,
-        headword=word.headword,
-        part_of_speech=word.part_of_speech,
-        noun_class=word.noun_class,
-        dialect=word.dialect,
-        literal_translation=word.literal_translation,
-        morphology_notes=word.morphology_notes,
-        status=word.status,
-        created_at=word.created_at,
-        glosses=[GlossOut(language=g.language, text=g.text) for g in word.glosses],
-        examples=[],
-        relations=[],
-    )
+    detail = _build_word_detail(word)
+    detail.relations = await _fetch_word_relations(db, word.id)
+    return detail
 
 
 # ═══════════════════════════════════════════════════════════════
 # PATCH /api/words/{id} — reviewer/admin edits a word
 # ═══════════════════════════════════════════════════════════════
-
-
-class EditWordRequest(BaseModel):
-    """Edit a word's fields. All fields optional — only provided fields are updated."""
-
-    headword: str | None = None
-    part_of_speech: str | None = None
-    noun_class: str | None = None
-    dialect: str | None = None
-    literal_translation: str | None = None
-    morphology_notes: str | None = None
-    swahili_gloss: str | None = None
-    english_gloss: str | None = None
 
 
 @router.patch("/words/{word_id}", response_model=WordDetail)
@@ -509,6 +591,10 @@ async def edit_word(
 
     Only provided fields are updated. Gloss fields (swahili_gloss, english_gloss)
     update the corresponding Gloss rows — creates them if they don't exist.
+
+    If `examples` is provided, it REPLACES the word's example set: existing
+    examples not in the list are deleted, examples with a matching `id` are
+    updated, examples without an `id` are created.
     """
     result = await db.execute(
         select(Word)
@@ -519,8 +605,6 @@ async def edit_word(
     if word is None:
         raise HTTPException(status_code=404, detail="Word not found")
 
-    from datetime import datetime, timezone
-
     before = {}
     after = {}
 
@@ -529,7 +613,11 @@ async def edit_word(
         before["headword"] = word.headword
         word.headword = req.headword.strip()
         word.normalized_form = _normalize_form(req.headword)
+        word.slug = await generate_unique_slug(
+            db, req.headword, exclude_word_id=word.id
+        )
         after["headword"] = word.headword
+        after["slug"] = word.slug
 
     if req.part_of_speech is not None:
         before["part_of_speech"] = word.part_of_speech
@@ -577,6 +665,46 @@ async def edit_word(
             db.add(en_gloss)
         after["english_gloss"] = req.english_gloss.strip()
 
+    # ── Examples (replace strategy) ───────────────────────────
+    if req.examples is not None:
+        # Track existing examples by id
+        existing_by_id = {e.id: e for e in word.examples}
+        kept_ids = {ex.id for ex in req.examples if ex.id is not None}
+
+        # Delete examples not in the new set
+        for ex_id, ex_obj in existing_by_id.items():
+            if ex_id not in kept_ids:
+                await db.delete(ex_obj)
+
+        before["examples"] = [
+            {"id": str(e.id), "taita_text": e.taita_text} for e in word.examples
+        ]
+        after["examples"] = []
+
+        # Update or create
+        for ex in req.examples:
+            if ex.id is not None and ex.id in existing_by_id:
+                ex_obj = existing_by_id[ex.id]
+                ex_obj.taita_text = ex.taita_text.strip()
+                ex_obj.swahili_text = ex.swahili_text.strip() if ex.swahili_text else None
+                ex_obj.english_text = ex.english_text.strip() if ex.english_text else None
+                ex_obj.source_ref = ex.source_ref
+            else:
+                new_ex = Example(
+                    word_id=word.id,
+                    taita_text=ex.taita_text.strip(),
+                    swahili_text=ex.swahili_text.strip() if ex.swahili_text else None,
+                    english_text=ex.english_text.strip() if ex.english_text else None,
+                    source_ref=ex.source_ref,
+                )
+                db.add(new_ex)
+            after["examples"].append({
+                "id": str(ex.id) if ex.id else None,
+                "taita_text": ex.taita_text,
+                "swahili_text": ex.swahili_text,
+                "english_text": ex.english_text,
+            })
+
     # ── Audit log + mark reviewed ─────────────────────────────
     if before or after:
         word.reviewed_at = datetime.now(timezone.utc)
@@ -595,7 +723,6 @@ async def edit_word(
     await db.commit()
 
     # ── Return updated word ───────────────────────────────────
-    # Re-fetch with glosses loaded
     result = await db.execute(
         select(Word)
         .where(Word.id == word_id)
@@ -603,53 +730,6 @@ async def edit_word(
     )
     word = result.scalar_one()
 
-    # Fetch relations
-    out_stmt = (
-        select(WordRelation, Word.headword)
-        .join(Word, WordRelation.to_word_id == Word.id)
-        .where(WordRelation.from_word_id == word_id)
-    )
-    in_stmt = (
-        select(WordRelation, Word.headword)
-        .join(Word, WordRelation.from_word_id == Word.id)
-        .where(WordRelation.to_word_id == word_id)
-    )
-
-    relations: list[RelationOut] = []
-
-    out_result = await db.execute(out_stmt)
-    for rel, other_headword in out_result.all():
-        relations.append(
-            RelationOut(
-                other_word_id=rel.to_word_id,
-                other_headword=other_headword,
-                relation_type=rel.relation_type,
-                direction="outgoing",
-            )
-        )
-
-    in_result = await db.execute(in_stmt)
-    for rel, other_headword in in_result.all():
-        relations.append(
-            RelationOut(
-                other_word_id=rel.from_word_id,
-                other_headword=other_headword,
-                relation_type=rel.relation_type,
-                direction="incoming",
-            )
-        )
-
-    return WordDetail(
-        id=word.id,
-        headword=word.headword,
-        part_of_speech=word.part_of_speech,
-        noun_class=word.noun_class,
-        dialect=word.dialect,
-        literal_translation=word.literal_translation,
-        morphology_notes=word.morphology_notes,
-        status=word.status,
-        created_at=word.created_at,
-        glosses=[GlossOut(language=g.language, text=g.text) for g in word.glosses],
-        examples=[],
-        relations=relations,
-    )
+    detail = _build_word_detail(word)
+    detail.relations = await _fetch_word_relations(db, word.id)
+    return detail

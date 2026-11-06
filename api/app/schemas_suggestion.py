@@ -1,11 +1,13 @@
 """Pydantic schemas for suggestion endpoints.
 
 A suggestion is a proposal to add or correct a word (or related entity).
-Phase 3 supports two target types:
+Supported target types:
   - 'new_word': propose a brand new word
-  - 'word': propose a correction to an existing word's field
-
-Other target types (gloss, example, relation) will be added in later phases.
+  - 'word':     propose a correction to an existing word's field
+  - 'gloss':    add a missing translation to an existing word
+  - 'example':  add a missing translation to an existing example
+                (taita_text already exists; reader suggests swahili/english)
+  - 'relation': link this word to another word (variation, see_also, etc.)
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ class NewWordProposal(BaseModel):
     morphology_notes: str | None = None
     swahili_gloss: str | None = None
     english_gloss: str | None = None
+    examples: list[dict] | None = None  # optional examples [{taita_text, swahili_text, english_text, source_ref}]
 
 
 class CreateSuggestionRequest(BaseModel):
@@ -45,9 +48,22 @@ class CreateSuggestionRequest(BaseModel):
       - target_id is the word UUID being corrected
       - field_path is the field name (e.g. 'headword', 'part_of_speech')
       - proposed_value is the new value for that field
+
+    For target_type='gloss':
+      - target_id is the word UUID
+      - proposed_value: { language: 'sw'|'en', text: '...' }
+
+    For target_type='example':
+      - target_id is the EXAMPLE UUID (the example being translated)
+      - proposed_value: { language: 'sw'|'en', text: '...' }
+        (Adds the translation to the existing example.)
+
+    For target_type='relation':
+      - target_id is the word UUID being linked FROM
+      - proposed_value: { related_word: headword|uuid, relation_type: 'variant'|... }
     """
 
-    target_type: str = Field(..., description="'new_word' or 'word'")
+    target_type: str = Field(..., description="'new_word' | 'word' | 'gloss' | 'example' | 'relation'")
     target_id: UUID | None = None
     field_path: str | None = None
     proposed_value: dict = Field(..., description="The proposed new value or full entity")
@@ -60,7 +76,12 @@ class CreateSuggestionRequest(BaseModel):
 
 
 class SuggestionResponse(BaseModel):
-    """A single suggestion, returned by GET /api/suggestions/{id}."""
+    """A single suggestion, returned by GET /api/suggestions/{id}.
+
+    Note: created_by_session_id is intentionally omitted — it's an internal
+    anon-session UUID that the frontend has no use for and that would leak
+    a tiny bit of PII (the ability to correlate an anon's suggestions).
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -72,7 +93,6 @@ class SuggestionResponse(BaseModel):
     rationale: str | None = None
     status: str
     created_by_user_id: UUID | None = None
-    created_by_session_id: UUID | None = None
     created_at: datetime
     decided_at: datetime | None = None
     decided_by_user_id: UUID | None = None
@@ -98,6 +118,7 @@ class SuggestionListItem(BaseModel):
     rationale: str | None = None
     status: str
     created_at: datetime
+    created_by_user_id: UUID | None = None
     author_display: str | None = None
     upvotes: int = 0
     downvotes: int = 0

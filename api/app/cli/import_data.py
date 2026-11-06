@@ -47,6 +47,7 @@ from app.models import (
     Word,
     WordRelation,
 )
+from app.slugs import generate_unique_slug
 
 # ── Stub admin user ID for Phase 1 ────────────────────────────
 # Phase 6 will replace this with a real admin user lookup.
@@ -120,9 +121,11 @@ async def import_entry(
         return "skipped_duplicate"
 
     # ── Create the Word row ───────────────────────────────────
+    slug = await generate_unique_slug(session, entry["headword"])
     word = Word(
         headword=entry["headword"],
         normalized_form=normalized,
+        slug=slug,
         part_of_speech=entry.get("part_of_speech"),
         noun_class=entry.get("noun_class"),
         dialect=entry.get("dialect"),
@@ -146,6 +149,7 @@ async def import_entry(
             after={
                 "headword": word.headword,
                 "normalized_form": word.normalized_form,
+                "slug": word.slug,
                 "source_entry_id": entry.get("source_entry_id"),
             },
         )
@@ -189,9 +193,11 @@ async def import_entry(
 
         if var_word is None:
             # Create stub Word for the variation
+            var_slug = await generate_unique_slug(session, var_text)
             var_word = Word(
                 headword=var_text,
                 normalized_form=var_normalized,
+                slug=var_slug,
                 dialect=var.get("dialect"),
                 morphology_notes=var.get("notes"),
                 status="live",
@@ -210,6 +216,7 @@ async def import_entry(
                     entity_id=var_word.id,
                     after={
                         "headword": var_word.headword,
+                        "slug": var_word.slug,
                         "note": "stub created from variation",
                     },
                 )
