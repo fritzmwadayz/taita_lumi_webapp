@@ -21,7 +21,7 @@ export default defineNuxtConfig({
   // ── CSS ────────────────────────────────────────────────────────────────
   // main.css = design tokens + primitives; motion.css = transitions,
   // skeletons, toasts, success overlay (plain CSS, no Tailwind directives).
-  css: ['~/assets/css/main.css', '~/assets/css/motion.css'],
+  css: ['~/assets/css/main.css'],
 
   // ── Tailwind ───────────────────────────────────────────────────────────
   tailwindcss: {
