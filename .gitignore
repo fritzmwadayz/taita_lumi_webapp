@@ -68,7 +68,9 @@ Thumbs.db
 *.swo
 
 # ======================
-# Misc
+# Other
 # ======================
 tmp/
 .cache/
+site/
+bak/

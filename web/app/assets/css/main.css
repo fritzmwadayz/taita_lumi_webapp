@@ -1,0 +1,191 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════════ */
+/* Lumi — main.css                                                                          */
+/* Tailwind v3 directives + @layer components for the unified primitives.                   */
+/* Replaces the duplicated .field / .field-label / .tab-pill CSS that was                   */
+/* scattered across Login, Contribute, Contact, Profile, WordDetail, Suggest.               */
+/* ═══════════════════════════════════════════════════════════════════════ */
+
+@layer base {
+  body {
+    @apply bg-cream text-ink font-sans antialiased;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Unified focus-visible ring for all interactive elements.
+     Replaces the old ad-hoc .field:focus box-shadow. */
+  *:focus-visible {
+    outline: none;
+  }
+
+  /* Custom scrollbar (matches the cream/forest palette) */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-cream-100;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-cream-300 rounded-full border-2 border-solid border-cream-100;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-cream-400;
+  }
+}
+
+@layer components {
+  /* ── Form fields ────────────────────────────────────────────────────── */
+  /* Single source of truth for text inputs, selects, textareas.
+     Replaces 6 copies of .field across the Vue source. */
+  .field {
+    @apply w-full px-3.5 py-2.5 text-sm border border-cream-300 rounded-md bg-cream-50 text-ink
+           placeholder-stone-light transition-colors duration-150;
+  }
+  .field:focus {
+    @apply outline-none border-forest shadow-ring;
+  }
+  .field:disabled {
+    @apply opacity-60 cursor-not-allowed;
+  }
+  .field-error {
+    @apply border-terracotta bg-terracotta-wash;
+  }
+
+  .field-label {
+    @apply block text-[10px] font-semibold uppercase tracking-wider text-stone-dark mb-1.5;
+  }
+
+  /* ── Focus ring utility ─────────────────────────────────────────────── */
+  /* Apply to any interactive element that needs a visible focus ring. */
+  .focus-ring:focus-visible {
+    @apply outline-none;
+    box-shadow: 0 0 0 2px #FBF7F0, 0 0 0 4px #2D5A3D;
+    border-radius: inherit;
+  }
+  .focus-ring-terra:focus-visible {
+    @apply outline-none;
+    box-shadow: 0 0 0 2px #FBF7F0, 0 0 0 4px #C75B39;
+    border-radius: inherit;
+  }
+
+  /* ── Tabs — underline style (replaces the old pill tabs) ────────────── */
+  /* Active tab gets a 2px forest bottom border; inactive tabs are muted. */
+  .tab-underline {
+    @apply relative px-4 py-2.5 text-sm font-medium text-stone hover:text-ink transition-colors
+           duration-150 rounded-t-md cursor-pointer;
+  }
+  .tab-underline-active {
+    @apply text-forest-dark font-semibold;
+  }
+  .tab-underline-active::after {
+    content: '';
+    @apply absolute inset-x-2 -bottom-px h-0.5 bg-forest rounded-full;
+  }
+
+  /* ── Buttons ────────────────────────────────────────────────────────── */
+  /* Four variants × three sizes. Every button uses .focus-ring for a11y. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 font-semibold rounded-md transition
+           duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-sm {
+    @apply text-xs px-3 py-1.5;
+  }
+  .btn-md {
+    @apply text-sm px-4 py-2;
+  }
+  .btn-lg {
+    @apply text-sm px-5 py-2.5;
+  }
+
+  .btn-primary {
+    @apply bg-forest text-cream hover:bg-forest-dark;
+  }
+  .btn-secondary {
+    @apply border border-forest text-forest hover:bg-forest hover:text-cream bg-transparent;
+  }
+  .btn-ghost {
+    @apply text-stone-dark hover:text-forest hover:bg-cream-100 bg-transparent font-medium;
+  }
+  .btn-danger {
+    @apply bg-terracotta text-cream hover:bg-terracotta-dark;
+  }
+
+  /* ── Badges ─────────────────────────────────────────────────────────── */
+  /* POS badges with color + symbol (color-blind friendly). */
+  .pos-badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold
+           uppercase tracking-wider;
+  }
+  .pos-noun {
+    @apply bg-forest-tint text-forest-dark;
+  }
+  .pos-verb {
+    @apply bg-terracotta-tint text-terracotta-dark;
+  }
+  .pos-adj {
+    @apply bg-ochre-tint text-ochre-dark;
+  }
+  .pos-phrase {
+    @apply bg-cream-200 text-stone-dark;
+  }
+  .pos-adverb {
+    @apply bg-stone/10 text-stone-dark;
+  }
+
+  /* Noun-class badge (small, neutral) */
+  .nclass-badge {
+    @apply inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-cream-100 text-stone-dark
+           border border-cream-200;
+  }
+
+  /* Status badges (open / accepted / rejected) */
+  .status-badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold
+           uppercase tracking-wider;
+  }
+  .status-open {
+    @apply bg-cream-100 text-stone-dark;
+  }
+  .status-accepted {
+    @apply bg-forest-tint text-forest-dark;
+  }
+  .status-rejected {
+    @apply bg-terracotta-tint text-terracotta-dark;
+  }
+
+  /* ── Triangle background pattern ────────────────────────────────────── */
+  /* Subtle motif on hero / accent panels (refined from the original decoration). */
+  .tri-pattern {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M16 0L32 32L0 32Z' fill='none' stroke='%23FBF7F0' stroke-width='0.5' opacity='0.4'/%3E%3C/svg%3E");
+    background-size: 32px 32px;
+  }
+  .tri-pattern-ochre {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M16 0L32 32L0 32Z' fill='none' stroke='%23E8C886' stroke-width='0.5' opacity='0.4'/%3E%3C/svg%3E");
+    background-size: 32px 32px;
+  }
+
+  /* ── Dot divider (subtle section break) ─────────────────────────────── */
+  .dot-divider {
+    background-image: radial-gradient(circle, #D8CBA8 1px, transparent 1px);
+    background-size: 8px 8px;
+    background-position: center;
+    background-repeat: repeat-x;
+    height: 1px;
+  }
+
+  /* ── Line clamp utility (for suggestion rationale truncation) ────────── */
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
