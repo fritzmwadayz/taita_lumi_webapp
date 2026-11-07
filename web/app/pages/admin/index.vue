@@ -44,12 +44,12 @@
             <NuxtLink
               v-for="w in stats.recent_words"
               :key="w.id"
-              :to="`/words/${w.id}`"
+              :to="`/words/${w.slug}`"
               class="focus-ring flex items-center justify-between bg-cream-50 hover:bg-cream-100 border border-cream-200 rounded-lg p-3 transition"
             >
               <div>
                 <p class="font-serif text-base text-ink font-medium">{{ w.headword }}</p>
-                <p class="text-xs text-stone">{{ w.swahili_gloss }}</p>
+                <p class="text-xs text-stone">{{ w.swahili_translation }}</p>
               </div>
               <span class="text-[10px] text-stone-light">{{ timeAgo(w.created_at) }}</span>
             </NuxtLink>

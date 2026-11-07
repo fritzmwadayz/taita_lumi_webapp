@@ -18,7 +18,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.db import get_db
 from app.main import app
-from app.models import Gloss, Word
+from app.models import Translation, Word
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -30,10 +30,10 @@ def make_mock_word(
     headword: str = "mlima",
     part_of_speech: str | None = "noun",
     dialect: str | None = "Dawida",
-    swahili_gloss: str | None = "mlima, kilima",
-    english_gloss: str | None = "mountain, hill",
+    swahili_translation: str | None = "mlima, kilima",
+    english_translation: str | None = "mountain, hill",
 ) -> MagicMock:
-    """Create a mock Word object with glosses eager-loaded."""
+    """Create a mock Word object with translations eager-loaded."""
     word = MagicMock(spec=Word)
     word.id = uuid.uuid4()
     word.headword = headword
@@ -47,18 +47,18 @@ def make_mock_word(
     word.created_at = datetime.now(timezone.utc)
     word.frequency = 42
 
-    glosses = []
-    if swahili_gloss:
-        g = MagicMock(spec=Gloss)
+    translations = []
+    if swahili_translation:
+        g = MagicMock(spec=Translation)
         g.language = "sw"
-        g.text = swahili_gloss
-        glosses.append(g)
-    if english_gloss:
-        g = MagicMock(spec=Gloss)
+        g.text = swahili_translation
+        translations.append(g)
+    if english_translation:
+        g = MagicMock(spec=Translation)
         g.language = "en"
-        g.text = english_gloss
-        glosses.append(g)
-    word.glosses = glosses
+        g.text = english_translation
+        translations.append(g)
+    word.translations = translations
     word.examples = []
 
     return word
@@ -240,7 +240,7 @@ async def test_create_word_requires_auth(client_unauth_word, mock_db):
     """POST /api/words without auth returns 401."""
     response = await client_unauth_word.post(
         "/api/words",
-        json={"headword": "mlima", "swahili_gloss": "mlima"},
+        json={"headword": "mlima", "swahili_translation": "mlima"},
     )
     assert response.status_code == 401
 
@@ -250,7 +250,7 @@ async def test_create_word_missing_headword(client_authed, mock_db):
     """POST /api/words without headword returns 422."""
     response = await client_authed.post(
         "/api/words",
-        json={"swahili_gloss": "mlima"},
+        json={"swahili_translation": "mlima"},
     )
     assert response.status_code == 422
 
@@ -270,7 +270,7 @@ async def test_create_word_duplicate_returns_409(client_authed, mock_db):
 
     response = await client_authed.post(
         "/api/words",
-        json={"headword": "mlima", "swahili_gloss": "mlima"},
+        json={"headword": "mlima", "swahili_translation": "mlima"},
     )
 
     assert response.status_code == 409

@@ -53,7 +53,7 @@ import { ref, computed } from 'vue'
 
 const props = defineProps<{
   headword: string
-  wordId: string
+  wordSlug: string
 }>()
 
 const copied = ref(false)
@@ -63,11 +63,11 @@ const route = useRoute()
 const shareUrl = computed(() => {
   // On client, use window.location.origin; on server, reconstruct from request
   if (import.meta.client) {
-    return `${window.location.origin}/words/${props.wordId}`
+    return `${window.location.origin}/words/${props.wordSlug}`
   }
   // During SSR, use the request URL origin
   const reqUrl = useRequestURL()
-  return `${reqUrl.origin}/words/${props.wordId}`
+  return `${reqUrl.origin}/words/${props.wordSlug}`
 })
 
 const shareText = computed(() => `${props.headword} — Lumi dictionary`)

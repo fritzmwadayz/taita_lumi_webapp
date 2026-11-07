@@ -125,19 +125,19 @@
                   <PosBadge v-if="(s.proposed_value as Record<string, unknown>).part_of_speech" :pos="(s.proposed_value as Record<string, unknown>).part_of_speech as string" />
                   <span v-if="(s.proposed_value as Record<string, unknown>).dialect" class="text-[10px] text-stone-light">{{ (s.proposed_value as Record<string, unknown>).dialect }}</span>
                 </div>
-                <p v-if="(s.proposed_value as Record<string, unknown>).swahili_gloss" class="text-sm text-ink-soft mb-1">
-                  <span class="font-medium">{{ (s.proposed_value as Record<string, unknown>).swahili_gloss }}</span>
+                <p v-if="(s.proposed_value as Record<string, unknown>).swahili_translation" class="text-sm text-ink-soft mb-1">
+                  <span class="font-medium">{{ (s.proposed_value as Record<string, unknown>).swahili_translation }}</span>
                   <span class="text-stone-light text-xs ml-1">(Kiswahili)</span>
                 </p>
-                <p v-if="(s.proposed_value as Record<string, unknown>).english_gloss" class="text-xs text-stone">
-                  {{ (s.proposed_value as Record<string, unknown>).english_gloss }}
+                <p v-if="(s.proposed_value as Record<string, unknown>).english_translation" class="text-xs text-stone">
+                  {{ (s.proposed_value as Record<string, unknown>).english_translation }}
                 </p>
               </template>
 
-              <!-- Gloss update -->
-              <template v-else-if="s.target_type === 'gloss'">
+              <!-- Translation update -->
+              <template v-else-if="s.target_type === 'translation'">
                 <p class="text-sm text-ink mb-1">
-                  Update gloss for
+                  Update translation for
                   <NuxtLink :to="`/words/${s.target_id}`" class="text-forest hover:underline font-medium">{{ s.field_path || 'word' }}</NuxtLink>
                 </p>
                 <p class="font-serif text-lg text-forest font-medium">{{ formatValue(s.proposed_value) }}</p>
@@ -207,7 +207,7 @@
     <!-- ═══ PENDING CORRECTIONS ═══ -->
     <div v-show="activeTab === 'corrections'" class="px-4 md:px-8 py-6 bg-white">
       <p class="text-xs text-stone mb-4">
-        Suggestions targeting existing words (corrections, gloss updates, relations). These need reviewer attention.
+        Suggestions targeting existing words (corrections, translation updates, relations). These need reviewer attention.
       </p>
       <div v-if="queuePending" class="space-y-2">
         <div v-for="i in 3" :key="i" class="bg-cream-50 border border-cream-200 rounded-xl p-4 animate-pulse">
@@ -241,7 +241,7 @@
     <!-- ═══ NEW WORD TRIAGE ═══ -->
     <div v-show="activeTab === 'triage'" class="px-4 md:px-8 py-6 bg-white">
       <p class="text-xs text-stone mb-4">
-        Recently added words that might need verification — missing relations, missing glosses, or status flags.
+        Recently added words that might need verification — missing relations, missing translations, or status flags.
       </p>
       <div v-if="triagePending" class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div v-for="i in 4" :key="i" class="bg-cream-50 border border-cream-200 rounded-xl p-4 animate-pulse">
@@ -256,18 +256,18 @@
         <NuxtLink
           v-for="w in triageWords"
           :key="w.id"
-          :to="`/words/${w.id}`"
+          :to="`/words/${w.slug}`"
           class="focus-ring bg-cream-50 border border-cream-200 rounded-xl p-4 hover:border-forest/30 transition"
         >
           <div class="flex items-baseline justify-between mb-1">
             <span class="font-serif text-lg text-ink font-semibold">{{ w.headword }}</span>
             <PosBadge v-if="w.part_of_speech" :pos="w.part_of_speech" />
           </div>
-          <p v-if="w.swahili_gloss" class="text-xs text-stone">{{ w.swahili_gloss }}</p>
+          <p v-if="w.swahili_translation" class="text-xs text-stone">{{ w.swahili_translation }}</p>
           <!-- Triage flags -->
           <div class="flex flex-wrap gap-1.5 mt-2">
             <span v-if="!w.has_relations" class="text-[10px] text-ochre-dark bg-ochre-tint px-1.5 py-0.5 rounded font-medium">no relations</span>
-            <span v-if="!w.swahili_gloss && !w.english_gloss" class="text-[10px] text-terracotta-dark bg-terracotta-tint px-1.5 py-0.5 rounded font-medium">no glosses</span>
+            <span v-if="!w.swahili_translation && !w.english_translation" class="text-[10px] text-terracotta-dark bg-terracotta-tint px-1.5 py-0.5 rounded font-medium">no translations</span>
             <span v-if="!w.part_of_speech" class="text-[10px] text-stone-dark bg-cream-200 px-1.5 py-0.5 rounded font-medium">no POS</span>
           </div>
         </NuxtLink>
@@ -326,12 +326,12 @@
             </select>
           </div>
           <div>
-            <label class="field-label">Swahili gloss <span class="text-terracotta">*</span></label>
-            <input v-model="addForm.swahili_gloss" type="text" class="field" placeholder="mf. mlima, kilima" :disabled="addSubmitting" />
+            <label class="field-label">Swahili translation <span class="text-terracotta">*</span></label>
+            <input v-model="addForm.swahili_translation" type="text" class="field" placeholder="mf. mlima, kilima" :disabled="addSubmitting" />
           </div>
           <div>
-            <label class="field-label">English gloss</label>
-            <input v-model="addForm.english_gloss" type="text" class="field" placeholder="e.g. mountain, hill" :disabled="addSubmitting" />
+            <label class="field-label">English translation</label>
+            <input v-model="addForm.english_translation" type="text" class="field" placeholder="e.g. mountain, hill" :disabled="addSubmitting" />
           </div>
           <div class="md:col-span-2">
             <label class="field-label">Literal translation</label>
@@ -410,7 +410,7 @@ const typeFilters = computed(() => {
   return [
     { value: null, label: 'All', count: openCount.value || null },
     { value: 'new_word', label: 'New word', count: counts['new_word'] || null },
-    { value: 'gloss', label: 'Gloss', count: counts['gloss'] || null },
+    { value: 'translation', label: 'Translation', count: counts['translation'] || null },
     { value: 'relation', label: 'Relation', count: counts['relation'] || null },
     { value: 'word', label: 'Correction', count: counts['word'] || null },
   ]
@@ -462,10 +462,10 @@ const { data: triageData, pending: triagePending } = await useFetch('/api/words'
 
 const triageWords = computed<WordListItem[]>(() => {
   const items = triageData.value?.items || []
-  // Words that might need attention: no relations, no glosses, or no POS
+  // Words that might need attention: no relations, no translations, or no POS
   return items.filter(w =>
     !w.has_relations ||
-    (!w.swahili_gloss && !w.english_gloss) ||
+    (!w.swahili_translation && !w.english_translation) ||
     !w.part_of_speech,
   )
 })
@@ -489,7 +489,7 @@ async function decide(id: string, decision: 'accept' | 'reject') {
 const addMode = ref<'direct' | 'suggest'>('direct')
 const addForm = reactive({
   headword: '', dialect: '', part_of_speech: '', noun_class: '',
-  swahili_gloss: '', english_gloss: '', literal_translation: '',
+  swahili_translation: '', english_translation: '', literal_translation: '',
 })
 const addRationale = ref('')
 const addSubmitting = ref(false)
@@ -500,7 +500,7 @@ async function onQuickAdd() {
   addError.value = ''
   addSuccess.value = false
   if (!addForm.headword.trim()) { addError.value = 'Please enter the Taita word.'; return }
-  if (!addForm.swahili_gloss.trim()) { addError.value = 'Please enter the Swahili translation.'; return }
+  if (!addForm.swahili_translation.trim()) { addError.value = 'Please enter the Swahili translation.'; return }
 
   addSubmitting.value = true
   try {
@@ -511,8 +511,8 @@ async function onQuickAdd() {
         noun_class: addForm.noun_class || null,
         dialect: addForm.dialect || null,
         literal_translation: addForm.literal_translation || null,
-        swahili_gloss: addForm.swahili_gloss.trim(),
-        english_gloss: addForm.english_gloss.trim() || null,
+        swahili_translation: addForm.swahili_translation.trim(),
+        english_translation: addForm.english_translation.trim() || null,
       })
     } else {
       await createSuggestion({
@@ -523,14 +523,14 @@ async function onQuickAdd() {
           noun_class: addForm.noun_class || null,
           dialect: addForm.dialect || null,
           literal_translation: addForm.literal_translation || null,
-          swahili_gloss: addForm.swahili_gloss.trim(),
-          english_gloss: addForm.english_gloss.trim() || null,
+          swahili_translation: addForm.swahili_translation.trim(),
+          english_translation: addForm.english_translation.trim() || null,
         },
         rationale: addRationale.value.trim() || null,
       })
     }
     addSuccess.value = true
-    Object.assign(addForm, { headword: '', dialect: '', part_of_speech: '', noun_class: '', swahili_gloss: '', english_gloss: '', literal_translation: '' })
+    Object.assign(addForm, { headword: '', dialect: '', part_of_speech: '', noun_class: '', swahili_translation: '', english_translation: '', literal_translation: '' })
     addRationale.value = ''
   } catch (err: unknown) {
     const e = err as { response?: { _data?: { detail?: string } }; message?: string }
@@ -551,7 +551,7 @@ function typeLabel(s: SuggestionListItem): string {
   switch (s.target_type) {
     case 'new_word': return 'New word'
     case 'word': return `Correction · ${s.field_path}`
-    case 'gloss': return 'Gloss suggestion'
+    case 'translation': return 'Translation suggestion'
     case 'example': return 'Example suggestion'
     case 'relation': return 'Relation suggestion'
     default: return s.target_type

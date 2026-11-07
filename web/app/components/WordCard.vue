@@ -1,6 +1,6 @@
 <template>
   <NuxtLink
-    :to="`/words/${word.id}`"
+    :to="`/words/${word.slug}`"
     class="focus-ring block bg-cream-50 hover:bg-white border border-cream-200 hover:border-forest/30 rounded-xl p-4 md:p-5 hover:shadow-card transition"
   >
     <div class="flex items-baseline justify-between mb-1">
@@ -11,8 +11,8 @@
       </div>
       <div v-if="word.dialect" class="text-[10px] text-stone-light">{{ word.dialect }}</div>
     </div>
-    <p v-if="word.swahili_gloss" class="text-sm text-stone">{{ word.swahili_gloss }}</p>
-    <p v-if="word.english_gloss" class="text-sm text-stone-light mt-0.5">{{ word.english_gloss }}</p>
+    <p v-if="word.swahili_translation" class="text-sm text-stone">{{ word.swahili_translation }}</p>
+    <p v-if="word.english_translation" class="text-sm text-stone-light mt-0.5">{{ word.english_translation }}</p>
     <div
       v-if="word.has_relations"
       class="flex items-center gap-1 mt-2 text-[10px] text-stone-light"

@@ -157,7 +157,7 @@ async def test_create_suggestion_new_word_authed(client_authed, mock_db):
             "target_type": "new_word",
             "proposed_value": {
                 "headword": "mlima",
-                "swahili_gloss": "mlima",
+                "swahili_translation": "mlima",
             },
             "rationale": "Common word, should be in the dictionary.",
         },
@@ -244,7 +244,7 @@ async def test_create_suggestion_new_word_missing_headword(client_authed, mock_d
         "/api/suggestions",
         json={
             "target_type": "new_word",
-            "proposed_value": {"swahili_gloss": "test"},
+            "proposed_value": {"swahili_translation": "test"},
         },
     )
 

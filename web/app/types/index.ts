@@ -30,12 +30,13 @@ export interface UserStats {
 
 export interface WordListItem {
   id: string
+  slug: string
   headword: string
   part_of_speech: string | null
   noun_class: string | null
   dialect: string | null
-  swahili_gloss: string | null
-  english_gloss: string | null
+  swahili_translation: string | null  // v1.3 — was swahili_gloss
+  english_translation: string | null  // v1.3 — was english_gloss
   has_relations: boolean
 }
 
@@ -47,16 +48,63 @@ export interface WordListResponse {
   has_next: boolean
 }
 
-export interface Gloss { language: string; text: string }
+// ── v1.3: Gloss → Translation ──────────────────────────────────────────
+export interface Translation {
+  language: string  // 'sw' or 'en'
+  text: string
+}
+
+// ── v1.2/v1.3: Variations & Relationships (replace the legacy Relation) ──
+// These are populated on WordDetail by the backend. The UI doesn't use them
+// yet — wiring them into words/[id].vue is a target for the next phase.
+export interface Variation {
+  other_word_id: string
+  other_headword: string
+  other_slug: string
+  variation_type: 'variant' | 'plural' | 'singular' | 'conjugation' | 'diminutive' | 'augmentative'
+}
+
+export interface Relationship {
+  other_word_id: string
+  other_headword: string
+  other_slug: string
+  relationship_type: 'antonym' | 'synonym' | 'see_also' | 'derived' | 'etymological'
+  direction: 'bidirectional' | 'forward' | 'reverse'
+  note: string | null
+}
+
+export interface Sense {
+  id: string
+  order_index: number  // 1-based
+  part_of_speech: string | null
+  definition: string | null
+  notes: string | null
+  translations: Translation[]
+  examples: Example[]
+}
+
+export interface Example {
+  id: string
+  sense_id: string | null
+  taita_text: string
+  swahili_text: string | null
+  english_text: string | null
+  source_ref: string | null
+}
+
+// DEPRECATED — use Variation + Relationship instead. Still populated by the
+// backend for backward compat with v1.1 frontend code.
 export interface Relation {
   other_word_id: string
   other_headword: string
+  other_slug: string | null
   relation_type: string
-  direction: string
+  direction: 'outgoing' | 'incoming'
 }
 
 export interface WordDetail {
   id: string
+  slug: string
   headword: string
   part_of_speech: string | null
   noun_class: string | null
@@ -65,8 +113,19 @@ export interface WordDetail {
   morphology_notes: string | null
   status: string
   created_at: string
-  glosses: Gloss[]
-  examples: unknown[]
+
+  // v1.3: glosses → translations
+  translations: Translation[]  // v1.3 — was glosses
+  examples: Example[]
+
+  // v1.2/v1.3: structured word graph (UI wiring = next phase target)
+  variations: Variation[]
+  relationships: Relationship[]
+  senses: Sense[]
+
+  // DEPRECATED — still populated for backward compat. Use variations +
+  // relationships instead. The UI currently reads this field; migrating to
+  // the structured fields is a target for the next phase.
   relations: Relation[]
 }
 
@@ -76,7 +135,11 @@ export interface SearchResponse {
   total: number
 }
 
-export type SuggestionTargetType = 'new_word' | 'word' | 'gloss' | 'example' | 'relation'
+// v1.3: 'gloss' → 'translation'. 'gloss' kept as legacy alias for in-flight suggestions.
+// v1.2 added: 'new_example', 'variation', 'relationship'.
+export type SuggestionTargetType =
+  | 'new_word' | 'word' | 'translation' | 'gloss' | 'example'
+  | 'new_example' | 'relation' | 'variation' | 'relationship'
 export type SuggestionStatus = 'open' | 'accepted' | 'rejected'
 
 export interface SuggestionListItem {

@@ -48,6 +48,24 @@ class MockResult:
         return self._rows
 
 
+def make_flexible_execute(*primary_results, default_result=None):
+    """Build an AsyncMock for db.execute that returns primary_results in order,
+    then default_result (or an empty MockResult) for any extra calls."""
+    default = default_result if default_result is not None else MockResult(rows=[])
+
+    async def side_effect(*args, **kwargs):
+        nonlocal call_index
+        if call_index < len(primary_results):
+            r = primary_results[call_index]
+        else:
+            r = default
+        call_index += 1
+        return r
+
+    call_index = 0
+    return AsyncMock(side_effect=side_effect)
+
+
 def make_mock_admin() -> MagicMock:
     user = MagicMock(spec=User)
     user.id = uuid.uuid4()
@@ -322,25 +340,26 @@ async def test_admin_merge_words_writes_audit(client_admin, mock_db):
     source.id = uuid.uuid4()
     source.headword = "mlima"
     source.slug = "mlima"
-    source.glosses = []
+    source.translations = []
     source.examples = []
 
     target = MagicMock(spec=Word)
     target.id = uuid.uuid4()
     target.headword = "mlima"
     target.slug = "mlima"
-    target.glosses = []
+    target.translations = []
     target.examples = []
 
-    # First two execute calls: fetch source and target
-    # Then fetch relations for source (outgoing + incoming)
-    mock_db.execute = AsyncMock(
-        side_effect=[
-            MockResult(value=source),  # source fetch
-            MockResult(value=target),  # target fetch
-            MockResult(rows=[]),       # source outgoing relations
-            MockResult(rows=[]),       # source incoming relations
-        ]
+    # Call order in merge_words:
+    #   1. source fetch (scalar_one_or_none → source)
+    #   2. target fetch (scalar_one_or_none → target)
+    #   3. variations outgoing for source (scalars → [])
+    #   4. variations incoming for source (scalars → [])
+    #   5. relationships outgoing for source (scalars → [])
+    #   6. relationships incoming for source (scalars → [])
+    mock_db.execute = make_flexible_execute(
+        MockResult(value=source),  # source fetch
+        MockResult(value=target),  # target fetch
     )
 
     response = await client_admin.post(
@@ -373,17 +392,15 @@ async def test_admin_stats_recent_words_full_shape(client_admin, mock_db):
     word.noun_class = None
     word.dialect = "Dawida"
     word.status = "live"
-    word.glosses = []
+    word.translations = []
 
-    # Mock: counts return 0, recent_words fetch returns [word],
-    # relations check returns []
+    # Call order in get_stats:
+    #   1. recent words fetch (scalars → [word])
+    #   2. variations + relationships batch check (4 subqueries unioned → [])
+    #   3. recent suggestions fetch (scalars → [])
     mock_db.scalar = AsyncMock(return_value=0)
-    mock_db.execute = AsyncMock(
-        side_effect=[
-            MockResult(rows=[word]),  # recent words fetch
-            MockResult(rows=[]),      # relations check
-            MockResult(rows=[]),      # recent suggestions fetch
-        ]
+    mock_db.execute = make_flexible_execute(
+        MockResult(rows=[word]),  # recent words fetch
     )
 
     response = await client_admin.get("/api/admin/stats")
@@ -401,8 +418,8 @@ async def test_admin_stats_recent_words_full_shape(client_admin, mock_db):
     assert "part_of_speech" in rw
     assert "noun_class" in rw
     assert "dialect" in rw
-    assert "swahili_gloss" in rw
-    assert "english_gloss" in rw
+    assert "swahili_translation" in rw
+    assert "english_translation" in rw
     assert "has_relations" in rw
     # total_suggestions is intentionally kept (per user's confirmation)
     assert "total_suggestions" in data

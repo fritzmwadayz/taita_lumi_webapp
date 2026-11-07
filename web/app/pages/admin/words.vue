@@ -14,7 +14,7 @@
       <input
         v-model="searchQuery"
         type="text"
-        placeholder="Search words by headword or gloss..."
+        placeholder="Search words by headword or translation..."
         class="flex-1 bg-transparent text-sm text-ink placeholder-stone-light outline-none"
         @input="onSearch"
       />
@@ -34,7 +34,7 @@
         <thead class="bg-cream-100 text-[10px] uppercase tracking-wider text-stone-light">
           <tr>
             <th class="text-left px-4 py-3 font-semibold">Word</th>
-            <th class="text-left px-4 py-3 font-semibold hidden md:table-cell">Gloss</th>
+            <th class="text-left px-4 py-3 font-semibold hidden md:table-cell">Translation</th>
             <th class="text-left px-4 py-3 font-semibold hidden md:table-cell">Dialect</th>
             <th class="text-right px-4 py-3 font-semibold">Actions</th>
           </tr>
@@ -43,15 +43,15 @@
           <tr v-for="word in words" :key="word.id" class="hover:bg-cream-50 transition">
             <td class="px-4 py-3">
               <div class="flex items-baseline gap-2">
-                <NuxtLink :to="`/words/${word.id}`" class="font-serif text-base text-ink font-medium hover:underline">{{ word.headword }}</NuxtLink>
+                <NuxtLink :to="`/words/${word.slug}`" class="font-serif text-base text-ink font-medium hover:underline">{{ word.headword }}</NuxtLink>
                 <PosBadge v-if="word.part_of_speech" :pos="word.part_of_speech" />
               </div>
             </td>
-            <td class="px-4 py-3 text-xs text-stone hidden md:table-cell">{{ word.swahili_gloss || '—' }}</td>
+            <td class="px-4 py-3 text-xs text-stone hidden md:table-cell">{{ word.swahili_translation || '—' }}</td>
             <td class="px-4 py-3 text-xs text-stone-light hidden md:table-cell">{{ word.dialect || '—' }}</td>
             <td class="px-4 py-3 text-right">
               <div class="flex items-center justify-end gap-1.5">
-                <NuxtLink :to="`/words/${word.id}`" class="focus-ring text-[10px] font-medium text-forest-dark bg-forest-tint hover:bg-forest/20 px-2 py-1 rounded transition">Edit</NuxtLink>
+                <NuxtLink :to="`/words/${word.slug}`" class="focus-ring text-[10px] font-medium text-forest-dark bg-forest-tint hover:bg-forest/20 px-2 py-1 rounded transition">Edit</NuxtLink>
                 <button
                   class="focus-ring text-[10px] font-medium text-terracotta-dark bg-terracotta-tint hover:bg-terracotta/20 px-2 py-1 rounded transition"
                   :disabled="hidingId === word.id"
@@ -68,7 +68,7 @@
     <section class="mt-8">
       <h2 class="font-serif text-base text-forest-dark mb-3">Merge words</h2>
       <div class="bg-cream-50 border border-cream-200 rounded-xl p-4">
-        <p class="text-xs text-stone mb-3">Merge two duplicate words. The source word is removed; its relations and glosses are transferred to the target.</p>
+        <p class="text-xs text-stone mb-3">Merge two duplicate words. The source word is removed; its relations and translations are transferred to the target.</p>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label class="field-label">Source word ID</label>

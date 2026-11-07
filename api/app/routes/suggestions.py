@@ -28,7 +28,7 @@ from app.anon import check_rate_limit, check_registered_user_rate_limit, get_or_
 from app.db import get_db
 from app.deps import get_optional_user, require_reviewer
 from app.models import Example, Suggestion, User, Vote, Word
-from app.promote import _apply_example, _apply_gloss, _apply_new_word, _apply_relation, _apply_word_correction
+from app.promote import _apply_example, _apply_new_example, _apply_new_word, _apply_relation, _apply_relationship, _apply_translation, _apply_variation, _apply_word_correction
 from app.schemas_suggestion import (
     CreateSuggestionRequest,
     SuggestionListItem,
@@ -45,7 +45,10 @@ router = APIRouter()
 # ═══════════════════════════════════════════════════════════════
 
 
-VALID_TARGET_TYPES = {"new_word", "word", "gloss", "example", "relation"}
+VALID_TARGET_TYPES = {
+    "new_word", "word", "translation", "gloss", "example", "new_example",
+    "relation", "variation", "relationship",
+}
 
 
 def _normalize_form(text: str) -> str:
@@ -85,24 +88,24 @@ def _validate_suggestion(req: CreateSuggestionRequest) -> None:
                 detail="word corrections must include field_path (e.g. 'headword')",
             )
 
-    elif req.target_type == "gloss":
-        # Adding a missing translation to an existing word
+    elif req.target_type in ("translation", "gloss"):
+        # Suggesting a translation (was 'gloss' in v1.2 — 'gloss' still accepted as a legacy alias)
         # proposed_value must contain language ('sw' or 'en') and text
         if not req.target_id:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="gloss suggestions must include target_id (the word UUID)",
+                detail="translation suggestions must include target_id (the word UUID)",
             )
         lang = req.proposed_value.get("language")
         if lang not in ("sw", "en"):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="gloss suggestions must include 'language' ('sw' or 'en') in proposed_value",
+                detail="translation suggestions must include 'language' ('sw' or 'en') in proposed_value",
             )
         if not req.proposed_value.get("text"):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="gloss suggestions must include 'text' (the translation) in proposed_value",
+                detail="translation suggestions must include 'text' (the translation) in proposed_value",
             )
 
     elif req.target_type == "example":
@@ -126,9 +129,27 @@ def _validate_suggestion(req: CreateSuggestionRequest) -> None:
                 detail="example suggestions must include 'text' (the translation) in proposed_value",
             )
 
+    elif req.target_type == "new_example":
+        # Suggesting a brand-new example sentence for an existing word.
+        # target_id is the WORD UUID (the word the example is being added to).
+        # proposed_value: { taita_text, swahili_text?, english_text?, source_ref? }
+        if not req.target_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="new_example suggestions must include target_id (the WORD UUID)",
+            )
+        if not req.proposed_value.get("taita_text"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="new_example suggestions must include 'taita_text' in proposed_value",
+            )
+
     elif req.target_type == "relation":
-        # Linking this word to another word (variation, see_also, etc.)
-        # proposed_value must contain related_word (headword or ID) and relation_type
+        # Legacy: linking this word to another word.
+        # proposed_value must contain related_word + relation_type.
+        # Auto-dispatches to word_variations or word_relationships based on
+        # the relation_type value (variant/plural/etc → variations;
+        # antonym/synonym/etc → relationships).
         if not req.target_id:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -143,6 +164,45 @@ def _validate_suggestion(req: CreateSuggestionRequest) -> None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="relation suggestions must include 'relation_type' in proposed_value",
+            )
+
+    elif req.target_type == "variation":
+        # Suggesting a bidirectional variation link between two forms of the
+        # same lemma (e.g. mlima ↔ milima singular/plural).
+        # proposed_value: { related_word, variation_type }
+        if not req.target_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="variation suggestions must include target_id (the word UUID)",
+            )
+        if not req.proposed_value.get("related_word"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="variation suggestions must include 'related_word' (headword or ID) in proposed_value",
+            )
+        if not req.proposed_value.get("variation_type"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="variation suggestions must include 'variation_type' in proposed_value",
+            )
+
+    elif req.target_type == "relationship":
+        # Suggesting a typed link between two different lemmas (e.g. antonym).
+        # proposed_value: { related_word, relationship_type, direction?, note? }
+        if not req.target_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="relationship suggestions must include target_id (the word UUID)",
+            )
+        if not req.proposed_value.get("related_word"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="relationship suggestions must include 'related_word' (headword or ID) in proposed_value",
+            )
+        if not req.proposed_value.get("relationship_type"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="relationship suggestions must include 'relationship_type' in proposed_value",
             )
 
 
@@ -268,7 +328,7 @@ async def create_suggestion(
                     },
                 )
 
-    # ── Validate target_id existence for example/gloss/relation/word ──
+    # ── Validate target_id existence for example/translation/relation/word ──
     if req.target_type == "example":
         ex_result = await db.execute(
             select(Example).where(Example.id == req.target_id)
@@ -278,7 +338,7 @@ async def create_suggestion(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Example not found",
             )
-    elif req.target_type in ("gloss", "relation", "word"):
+    elif req.target_type in ("translation", "gloss", "relation", "word", "new_example", "variation", "relationship"):
         w_result = await db.execute(
             select(Word).where(Word.id == req.target_id, Word.status == "live")
         )
@@ -532,12 +592,18 @@ async def decide_suggestion(
             await _apply_new_word(db, suggestion, actor_id=current_user.id)
         elif suggestion.target_type == "word":
             await _apply_word_correction(db, suggestion, actor_id=current_user.id)
-        elif suggestion.target_type == "gloss":
-            await _apply_gloss(db, suggestion, actor_id=current_user.id)
+        elif suggestion.target_type in ("translation", "gloss"):
+            await _apply_translation(db, suggestion, actor_id=current_user.id)
         elif suggestion.target_type == "example":
             await _apply_example(db, suggestion, actor_id=current_user.id)
+        elif suggestion.target_type == "new_example":
+            await _apply_new_example(db, suggestion, actor_id=current_user.id)
         elif suggestion.target_type == "relation":
             await _apply_relation(db, suggestion, actor_id=current_user.id)
+        elif suggestion.target_type == "variation":
+            await _apply_variation(db, suggestion, actor_id=current_user.id)
+        elif suggestion.target_type == "relationship":
+            await _apply_relationship(db, suggestion, actor_id=current_user.id)
 
         suggestion.status = "accepted"
         suggestion.applied_at = now

@@ -93,8 +93,8 @@ class EditWordRequest(BaseModel):
     dialect: str | None = None
     literal_translation: str | None = None
     morphology_notes: str | None = None
-    swahili_gloss: str | None = None
-    english_gloss: str | None = None
+    swahili_translation: str | None = None
+    english_translation: str | None = None
     examples: list[ExampleInput] | None = None
 
 

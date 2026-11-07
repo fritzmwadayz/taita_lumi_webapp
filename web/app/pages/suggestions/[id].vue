@@ -45,13 +45,13 @@
       <section v-if="suggestion.target_type === 'new_word'" class="py-8 border-b border-cream-200">
         <h2 class="text-xs font-semibold uppercase tracking-widest text-stone mb-6">Proposed translations</h2>
         <div class="space-y-6">
-          <div v-if="(suggestion.proposed_value as Record<string, unknown>).swahili_gloss" class="flex gap-6">
+          <div v-if="(suggestion.proposed_value as Record<string, unknown>).swahili_translation" class="flex gap-6">
             <span class="text-xs font-bold text-forest w-12 mt-1">SW</span>
-            <p class="font-serif text-xl text-ink font-medium">{{ (suggestion.proposed_value as Record<string, unknown>).swahili_gloss }}</p>
+            <p class="font-serif text-xl text-ink font-medium">{{ (suggestion.proposed_value as Record<string, unknown>).swahili_translation }}</p>
           </div>
-          <div v-if="(suggestion.proposed_value as Record<string, unknown>).english_gloss" class="flex gap-6">
+          <div v-if="(suggestion.proposed_value as Record<string, unknown>).english_translation" class="flex gap-6">
             <span class="text-xs font-bold text-terracotta w-12 mt-1">EN</span>
-            <p class="font-serif text-lg text-ink-soft font-medium">{{ (suggestion.proposed_value as Record<string, unknown>).english_gloss }}</p>
+            <p class="font-serif text-lg text-ink-soft font-medium">{{ (suggestion.proposed_value as Record<string, unknown>).english_translation }}</p>
           </div>
         </div>
         <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">

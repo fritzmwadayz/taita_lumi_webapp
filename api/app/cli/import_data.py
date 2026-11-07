@@ -6,8 +6,8 @@ Usage:
   python -m app.cli.import_data path/to/export.ndjson --source-commit abc123
 
 Reads the NDJSON produced by taita-dictionary/scripts/export_for_web.py
-and inserts each entry as a Word row, with child Gloss, Example, and
-WordRelation rows. Wraps everything in a transaction; on any error,
+and inserts each entry as a Word row, with child Translation, Example, and
+WordVariation rows. Wraps everything in a transaction; on any error,
 rolls back and exits non-zero.
 
 Idempotency:
@@ -42,10 +42,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.db import async_session
 from app.models import (
     EditLog,
-    Gloss,
+    Translation,
     ImportBatch,
     Word,
-    WordRelation,
+    WordVariation,
 )
 from app.slugs import generate_unique_slug
 
@@ -155,23 +155,25 @@ async def import_entry(
         )
     )
 
-    # ── Glosses (Swahili first, English second) ───────────────
-    # Only the translation(s) provided in lexicon.db are imported.
-    # Most entries have swahili (auto-mapped); english is rarer.
-    if entry.get("swahili_gloss"):
+    # ── Translations (Swahili first, English second) ──────────
+    # Accept both new key names (swahili_translation) and legacy (swahili_gloss)
+    # so old NDJSON exports still import.
+    sw = entry.get("swahili_translation") or entry.get("swahili_gloss")
+    en = entry.get("english_translation") or entry.get("english_gloss")
+    if sw:
         session.add(
-            Gloss(word_id=word.id, language="sw", text=entry["swahili_gloss"])
+            Translation(word_id=word.id, language="sw", text=sw)
         )
-    if entry.get("english_gloss"):
+    if en:
         session.add(
-            Gloss(word_id=word.id, language="en", text=entry["english_gloss"])
+            Translation(word_id=word.id, language="en", text=en)
         )
 
     # ── Examples: intentionally NOT imported ──────────────────
     # The web app starts with just words + translations. Examples will
     # be contributed via the web UI in later phases.
 
-    # ── Variations → word_relations ───────────────────────────
+    # ── Variations → word_variations ──────────────────────────
     # For each variation, find or create a stub Word, then link.
     for var in entry.get("variations", []):
         var_text = var.get("variation", "").strip()
@@ -222,12 +224,13 @@ async def import_entry(
                 )
             )
 
-        # Create the relation: main word → variation, type='variant'
+        # Create the variation: main word ↔ variation, type='variant'
+        # (bidirectional — word_variations table)
         session.add(
-            WordRelation(
-                from_word_id=word.id,
-                to_word_id=var_word.id,
-                relation_type="variant",
+            WordVariation(
+                word_id=word.id,
+                other_word_id=var_word.id,
+                variation_type="variant",
             )
         )
 

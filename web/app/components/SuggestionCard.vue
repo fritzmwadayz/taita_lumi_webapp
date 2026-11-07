@@ -11,23 +11,23 @@
       <span class="text-[10px] text-stone-light">{{ timeAgo(suggestion.created_at) }}</span>
     </div>
 
-    <!-- New word: show headword + gloss -->
+    <!-- New word: show headword + translation -->
     <template v-if="suggestion.target_type === 'new_word'">
       <h3 class="font-serif text-2xl text-ink font-semibold mb-1">
         {{ (suggestion.proposed_value as Record<string, unknown>).headword }}
       </h3>
       <p
-        v-if="(suggestion.proposed_value as Record<string, unknown>).swahili_gloss"
+        v-if="(suggestion.proposed_value as Record<string, unknown>).swahili_translation"
         class="text-sm text-ink-soft mb-1"
       >
-        <span class="font-medium">{{ (suggestion.proposed_value as Record<string, unknown>).swahili_gloss }}</span>
+        <span class="font-medium">{{ (suggestion.proposed_value as Record<string, unknown>).swahili_translation }}</span>
         <span class="text-stone-light text-xs ml-1">(Kiswahili)</span>
       </p>
       <p
-        v-if="(suggestion.proposed_value as Record<string, unknown>).english_gloss"
+        v-if="(suggestion.proposed_value as Record<string, unknown>).english_translation"
         class="text-xs text-stone"
       >
-        {{ (suggestion.proposed_value as Record<string, unknown>).english_gloss }}
+        {{ (suggestion.proposed_value as Record<string, unknown>).english_translation }}
       </p>
     </template>
 
@@ -126,7 +126,7 @@ const typeLabel = computed(() => {
   switch (props.suggestion.target_type) {
     case 'new_word': return 'New word'
     case 'word': return `Correction · ${props.suggestion.field_path}`
-    case 'gloss': return 'Gloss update'
+    case 'translation': return 'Translation update'
     case 'example': return 'New example'
     case 'relation': return 'New relation'
     default: return props.suggestion.target_type

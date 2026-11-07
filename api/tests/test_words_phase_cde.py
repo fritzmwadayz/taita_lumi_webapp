@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from uuid import UUID
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -22,7 +23,7 @@ from httpx import ASGITransport, AsyncClient
 from app.db import get_db
 from app.deps import require_reviewer
 from app.main import app
-from app.models import Example, Gloss, Word
+from app.models import Example, Translation, Word
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -35,12 +36,12 @@ def make_mock_word(
     slug: str = "mlima",
     part_of_speech: str | None = "noun",
     dialect: str | None = "Dawida",
-    swahili_gloss: str | None = "mlima, kilima",
-    english_gloss: str | None = "mountain, hill",
+    swahili_translation: str | None = "mlima, kilima",
+    english_translation: str | None = "mountain, hill",
     status: str = "live",
     examples: list[Example] | None = None,
 ) -> MagicMock:
-    """Create a mock Word object with glosses + examples eager-loaded."""
+    """Create a mock Word object with translations + examples eager-loaded."""
     word = MagicMock(spec=Word)
     word.id = uuid.uuid4()
     word.headword = headword
@@ -54,18 +55,18 @@ def make_mock_word(
     word.status = status
     word.created_at = datetime.now(timezone.utc)
 
-    glosses = []
-    if swahili_gloss:
-        g = MagicMock(spec=Gloss)
+    translations = []
+    if swahili_translation:
+        g = MagicMock(spec=Translation)
         g.language = "sw"
-        g.text = swahili_gloss
-        glosses.append(g)
-    if english_gloss:
-        g = MagicMock(spec=Gloss)
+        g.text = swahili_translation
+        translations.append(g)
+    if english_translation:
+        g = MagicMock(spec=Translation)
         g.language = "en"
-        g.text = english_gloss
-        glosses.append(g)
-    word.glosses = glosses
+        g.text = english_translation
+        translations.append(g)
+    word.translations = translations
     word.examples = examples or []
     return word
 
@@ -75,9 +76,11 @@ def make_mock_example(
     swahili_text: str | None = "Mlima ni mrefu.",
     english_text: str | None = "The mountain is tall.",
     source_ref: str | None = "story-1",
+    sense_id: UUID | None = None,
 ) -> MagicMock:
     ex = MagicMock(spec=Example)
     ex.id = uuid.uuid4()
+    ex.sense_id = sense_id  # required by ExampleOut (Phase H)
     ex.taita_text = taita_text
     ex.swahili_text = swahili_text
     ex.english_text = english_text
@@ -86,9 +89,40 @@ def make_mock_example(
 
 
 class MockResult:
+    def __init__(self, value=None, rows=None, scalar_one_value=None):
+        self._value = value
+        self._scalar_one_value = scalar_one_value if scalar_one_value is not None else value
+        self._rows = rows or []
+
+    def scalar_one_or_none(self):
+        return self._value
+
+    def scalar_one(self):
+        return self._scalar_one_value
+
+    def scalar(self):
+        return self._value
+
+    def scalars(self):
+        m = MagicMock()
+        m.all.return_value = self._rows
+        m.unique.return_value = m
+        return m
+
+    def all(self):
+        return self._rows
+
+
+class FlexibleMockResult:
+    """Mock result that returns the configured value/rows on the first call,
+    then empty results on subsequent calls. Useful for endpoints that make
+    a variable number of follow-up queries (e.g. variations + relationships
+    in both directions = up to 4 extra execute calls)."""
+
     def __init__(self, value=None, rows=None):
         self._value = value
         self._rows = rows or []
+        self._call_count = 0
 
     def scalar_one_or_none(self):
         return self._value
@@ -104,6 +138,28 @@ class MockResult:
 
     def all(self):
         return self._rows
+
+
+def make_flexible_execute(*primary_results, default_result=None):
+    """Build an AsyncMock for db.execute that returns primary_results in order,
+    then default_result (or an empty MockResult) for any extra calls.
+
+    Useful for endpoints that make a variable number of follow-up queries
+    (e.g. variations + relationships in both directions = up to 4 extra calls).
+    """
+    default = default_result if default_result is not None else MockResult(rows=[])
+
+    async def side_effect(*args, **kwargs):
+        nonlocal call_index
+        if call_index < len(primary_results):
+            r = primary_results[call_index]
+        else:
+            r = default
+        call_index += 1
+        return r
+
+    call_index = 0
+    return AsyncMock(side_effect=side_effect)
 
 
 @pytest.fixture
@@ -159,14 +215,9 @@ async def test_get_word_by_slug(client_with_mock_db, mock_db):
     word = make_mock_word(headword="mlima", slug="mlima")
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = word
-    # Two execute calls: word fetch + relations fetch (outgoing + incoming)
-    mock_db.execute = AsyncMock(
-        side_effect=[
-            mock_result,                       # word fetch
-            MockResult(rows=[]),               # outgoing relations
-            MockResult(rows=[]),               # incoming relations
-        ]
-    )
+    # _fetch_word_variations_and_relationships makes 4 follow-up queries
+    # (var_out, var_in, rel_out, rel_in) — all return empty.
+    mock_db.execute = make_flexible_execute(mock_result)
 
     response = await client_with_mock_db.get("/api/words/mlima")
 
@@ -174,6 +225,13 @@ async def test_get_word_by_slug(client_with_mock_db, mock_db):
     data = response.json()
     assert data["headword"] == "mlima"
     assert data["slug"] == "mlima"
+    # New split fields are present
+    assert "variations" in data
+    assert "relationships" in data
+    assert isinstance(data["variations"], list)
+    assert isinstance(data["relationships"], list)
+    # Legacy field still present
+    assert "relations" in data
 
 
 @pytest.mark.asyncio
@@ -184,13 +242,7 @@ async def test_get_word_by_uuid_still_works(client_with_mock_db, mock_db):
     word.id = word_id
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = word
-    mock_db.execute = AsyncMock(
-        side_effect=[
-            mock_result,
-            MockResult(rows=[]),
-            MockResult(rows=[]),
-        ]
-    )
+    mock_db.execute = make_flexible_execute(mock_result)
 
     response = await client_with_mock_db.get(f"/api/words/{word_id}")
 
@@ -246,9 +298,7 @@ async def test_word_detail_status_live_mapped_to_active(client_with_mock_db, moc
     word = make_mock_word(status="live")
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = word
-    mock_db.execute = AsyncMock(
-        side_effect=[mock_result, MockResult(rows=[]), MockResult(rows=[])]
-    )
+    mock_db.execute = make_flexible_execute(mock_result)
 
     response = await client_with_mock_db.get("/api/words/mlima")
 
@@ -262,9 +312,7 @@ async def test_word_detail_status_hidden_passes_through(client_with_mock_db, moc
     word = make_mock_word(status="hidden")
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = word
-    mock_db.execute = AsyncMock(
-        side_effect=[mock_result, MockResult(rows=[]), MockResult(rows=[])]
-    )
+    mock_db.execute = make_flexible_execute(mock_result)
 
     response = await client_with_mock_db.get("/api/words/mlima")
 
@@ -321,9 +369,7 @@ async def test_word_detail_surfaces_examples(client_with_mock_db, mock_db):
     word = make_mock_word(examples=[ex1, ex2])
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = word
-    mock_db.execute = AsyncMock(
-        side_effect=[mock_result, MockResult(rows=[]), MockResult(rows=[])]
-    )
+    mock_db.execute = make_flexible_execute(mock_result)
 
     response = await client_with_mock_db.get("/api/words/mlima")
 
@@ -347,32 +393,28 @@ async def test_word_detail_surfaces_examples(client_with_mock_db, mock_db):
 @pytest.mark.asyncio
 async def test_create_word_with_examples(client_authed, mock_db):
     """POST /api/words accepts examples in the body and creates them."""
-    # Mock: no duplicate found, generate_unique_slug returns 'mlima'
+    # Call order in create_word:
+    #   1. duplicate check (scalar_one_or_none → None)
+    #   2. slug collision check inside generate_unique_slug (scalar_one_or_none → None)
+    #   3. final word fetch after commit (scalar_one → word)
+    #   4-7. _populate_relations follow-ups (4 calls, all empty)
     no_dup_result = MagicMock()
     no_dup_result.scalar_one_or_none.return_value = None
-    # slug lookup (returns None — no collision)
-    slug_result = MagicMock()
-    slug_result.scalar_one_or_none.return_value = None
-    # final word fetch (after commit)
+
+    slug_check_result = MagicMock()
+    slug_check_result.scalar_one_or_none.return_value = None
+
     word = make_mock_word(headword="mlima", slug="mlima")
     final_result = MagicMock()
     final_result.scalar_one.return_value = word
-    # relations fetch
-    mock_db.execute = AsyncMock(
-        side_effect=[
-            no_dup_result,    # duplicate check
-            slug_result,      # slug collision check
-            final_result,     # final word fetch
-            MockResult(rows=[]),  # outgoing relations
-            MockResult(rows=[]),  # incoming relations
-        ]
-    )
+
+    mock_db.execute = make_flexible_execute(no_dup_result, slug_check_result, final_result)
 
     response = await client_authed.post(
         "/api/words",
         json={
             "headword": "mlima",
-            "swahili_gloss": "mlima",
+            "swahili_translation": "mlima",
             "examples": [
                 {
                     "taita_text": "Mlima u mrefu.",
@@ -398,24 +440,16 @@ async def test_create_word_examples_optional(client_authed, mock_db):
     """POST /api/words without examples field still works."""
     no_dup_result = MagicMock()
     no_dup_result.scalar_one_or_none.return_value = None
-    slug_result = MagicMock()
-    slug_result.scalar_one_or_none.return_value = None
+    slug_check_result = MagicMock()
+    slug_check_result.scalar_one_or_none.return_value = None
     word = make_mock_word(headword="mlima", slug="mlima")
     final_result = MagicMock()
     final_result.scalar_one.return_value = word
-    mock_db.execute = AsyncMock(
-        side_effect=[
-            no_dup_result,
-            slug_result,
-            final_result,
-            MockResult(rows=[]),
-            MockResult(rows=[]),
-        ]
-    )
+    mock_db.execute = make_flexible_execute(no_dup_result, slug_check_result, final_result)
 
     response = await client_authed.post(
         "/api/words",
-        json={"headword": "mlima", "swahili_gloss": "mlima"},
+        json={"headword": "mlima", "swahili_translation": "mlima"},
     )
 
     assert response.status_code == 201
@@ -438,6 +472,7 @@ async def test_edit_word_replaces_examples(client_authed, mock_db):
     fetch_result.scalar_one_or_none.return_value = word
     new_ex_mock = MagicMock(spec=Example)
     new_ex_mock.id = uuid.uuid4()
+    new_ex_mock.sense_id = None
     new_ex_mock.taita_text = "New example."
     new_ex_mock.swahili_text = None
     new_ex_mock.english_text = None
@@ -451,15 +486,8 @@ async def test_edit_word_replaces_examples(client_authed, mock_db):
     final_result.scalar_one.return_value = final_word
 
     # No headword change → no slug regen check.
-    # Call sequence: initial fetch, final fetch, outgoing relations, incoming relations
-    mock_db.execute = AsyncMock(
-        side_effect=[
-            fetch_result,             # initial word fetch
-            final_result,             # final word fetch (after commit)
-            MockResult(rows=[]),      # outgoing relations
-            MockResult(rows=[]),      # incoming relations
-        ]
-    )
+    # Call sequence: initial fetch, final fetch, then 4 _populate_relations calls
+    mock_db.execute = make_flexible_execute(fetch_result, final_result)
 
     response = await client_authed.patch(
         f"/api/words/{word.id}",

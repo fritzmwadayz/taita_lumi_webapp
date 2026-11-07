@@ -20,7 +20,7 @@ Audit log shape mapping (DB → API):
 
   Action namespace (public):
     word.create, word.update, word.hide, word.merge, word.import
-    gloss.create
+    translation.create
     example.update
     relation.create
     suggestion.accept, suggestion.reject
@@ -43,14 +43,15 @@ from app.deps import require_admin
 from app.models import (
     EditLog,
     Example,
-    Gloss,
+    Translation,
     Suggestion,
     User,
     Vote,
     Word,
-    WordRelation,
+    WordRelationship,
+    WordVariation,
 )
-from app.promote import _apply_example, _apply_gloss, _apply_new_word, _apply_relation, _apply_word_correction
+from app.promote import _apply_example, _apply_new_example, _apply_new_word, _apply_relation, _apply_relationship, _apply_translation, _apply_variation, _apply_word_correction
 from app.schemas import WordListItem
 from app.schemas_admin import (
     AdminUserListResponse,
@@ -107,10 +108,6 @@ def _map_action(db_action: str, entity_type: str, after: dict | None) -> str:
         return db_action
 
     if db_action == "delete":
-        # 'delete' on a word is either a hide (after.status='hidden')
-        # or a merge (after.status='merged'). We can't always tell from
-        # the after payload alone because merge writes its own row with
-        # action='merge'. So 'delete' → 'word.hide' is the safe default.
         if entity_type == "word":
             return "word.hide"
         return f"{entity_type}.delete"
@@ -211,32 +208,50 @@ async def get_stats(
         .where(Word.status == "live")
         .order_by(Word.created_at.desc())
         .limit(5)
-        .options(selectinload(Word.glosses))
+        .options(selectinload(Word.translations))
     )
     recent_word_rows = recent_words_result.scalars().unique().all()
 
-    # Batch-check which recent words have relations
+    # Batch-check which recent words have variations or relationships
     recent_word_ids = [w.id for w in recent_word_rows]
     if recent_word_ids:
-        out_subq = (
-            select(WordRelation.from_word_id.label("word_id"))
-            .where(WordRelation.from_word_id.in_(recent_word_ids))
+        recent_with_relations: set[UUID] = set()
+
+        # Variations: bidirectional, check both sides
+        var_out = (
+            select(WordVariation.word_id.label("wid"))
+            .where(WordVariation.word_id.in_(recent_word_ids))
         )
-        in_subq = (
-            select(WordRelation.to_word_id.label("word_id"))
-            .where(WordRelation.to_word_id.in_(recent_word_ids))
+        var_in = (
+            select(WordVariation.other_word_id.label("wid"))
+            .where(WordVariation.other_word_id.in_(recent_word_ids))
         )
-        rel_result = await db.execute(
-            select(out_subq.union(in_subq).subquery().c.word_id)
+        # Union the two variation queries (2-way check)
+        var_combined = var_out.union(var_in)
+        var_result = await db.execute(var_combined)
+        for row in var_result.all():
+            recent_with_relations.add(row[0])
+
+        # Relationships: same — both directions
+        rel_out = (
+            select(WordRelationship.word_id.label("wid"))
+            .where(WordRelationship.word_id.in_(recent_word_ids))
         )
-        recent_with_relations = {row[0] for row in rel_result.all()}
+        rel_in = (
+            select(WordRelationship.other_word_id.label("wid"))
+            .where(WordRelationship.other_word_id.in_(recent_word_ids))
+        )
+        rel_combined = rel_out.union(rel_in)
+        rel_result = await db.execute(rel_combined)
+        for row in rel_result.all():
+            recent_with_relations.add(row[0])
     else:
         recent_with_relations = set()
 
     recent_words: list[WordListItem] = []
     for w in recent_word_rows:
-        sw_gloss = next((g.text for g in w.glosses if g.language == "sw"), None)
-        en_gloss = next((g.text for g in w.glosses if g.language == "en"), None)
+        sw_translation = next((g.text for g in w.translations if g.language == "sw"), None)
+        en_translation = next((g.text for g in w.translations if g.language == "en"), None)
         recent_words.append(WordListItem(
             id=w.id,
             slug=w.slug,
@@ -244,8 +259,8 @@ async def get_stats(
             part_of_speech=w.part_of_speech,
             noun_class=w.noun_class,
             dialect=w.dialect,
-            swahili_gloss=sw_gloss,
-            english_gloss=en_gloss,
+            swahili_translation=sw_translation,
+            english_translation=en_translation,
             has_relations=w.id in recent_with_relations,
         ))
 
@@ -469,12 +484,18 @@ async def decide_suggestion(
             await _apply_new_word(db, suggestion, actor_id=admin.id)
         elif suggestion.target_type == "word":
             await _apply_word_correction(db, suggestion, actor_id=admin.id)
-        elif suggestion.target_type == "gloss":
-            await _apply_gloss(db, suggestion, actor_id=admin.id)
+        elif suggestion.target_type in ("translation", "gloss"):
+            await _apply_translation(db, suggestion, actor_id=admin.id)
         elif suggestion.target_type == "example":
             await _apply_example(db, suggestion, actor_id=admin.id)
+        elif suggestion.target_type == "new_example":
+            await _apply_new_example(db, suggestion, actor_id=admin.id)
         elif suggestion.target_type == "relation":
             await _apply_relation(db, suggestion, actor_id=admin.id)
+        elif suggestion.target_type == "variation":
+            await _apply_variation(db, suggestion, actor_id=admin.id)
+        elif suggestion.target_type == "relationship":
+            await _apply_relationship(db, suggestion, actor_id=admin.id)
 
         suggestion.status = "accepted"
         suggestion.applied_at = now
@@ -525,8 +546,8 @@ async def edit_word(
 ):
     """Admin edits a word's fields. Only provided fields are updated.
 
-    Gloss fields (swahili_gloss, english_gloss) update the corresponding
-    Gloss rows — creates them if they don't exist.
+    Translation fields (swahili_translation, english_translation) update the corresponding
+    Translation rows — creates them if they don't exist.
 
     If `examples` is provided, it REPLACES the word's example set: existing
     examples not in the list are deleted, examples with a matching `id` are
@@ -537,7 +558,7 @@ async def edit_word(
     result = await db.execute(
         select(Word)
         .where(Word.id == word_id)
-        .options(selectinload(Word.glosses), selectinload(Word.examples))
+        .options(selectinload(Word.translations), selectinload(Word.examples))
     )
     word = result.scalar_one_or_none()
     if word is None:
@@ -583,26 +604,26 @@ async def edit_word(
         word.morphology_notes = req.morphology_notes or None
         after["morphology_notes"] = word.morphology_notes
 
-    # ── Gloss fields ──────────────────────────────────────────
-    if req.swahili_gloss is not None:
-        sw_gloss = next((g for g in word.glosses if g.language == "sw"), None)
-        if sw_gloss:
-            before["swahili_gloss"] = sw_gloss.text
-            sw_gloss.text = req.swahili_gloss.strip()
+    # ── Translation fields ──────────────────────────────────────────
+    if req.swahili_translation is not None:
+        sw_translation = next((g for g in word.translations if g.language == "sw"), None)
+        if sw_translation:
+            before["swahili_translation"] = sw_translation.text
+            sw_translation.text = req.swahili_translation.strip()
         else:
-            sw_gloss = Gloss(word_id=word.id, language="sw", text=req.swahili_gloss.strip())
-            db.add(sw_gloss)
-        after["swahili_gloss"] = req.swahili_gloss.strip()
+            sw_translation = Translation(word_id=word.id, language="sw", text=req.swahili_translation.strip())
+            db.add(sw_translation)
+        after["swahili_translation"] = req.swahili_translation.strip()
 
-    if req.english_gloss is not None:
-        en_gloss = next((g for g in word.glosses if g.language == "en"), None)
-        if en_gloss:
-            before["english_gloss"] = en_gloss.text
-            en_gloss.text = req.english_gloss.strip()
+    if req.english_translation is not None:
+        en_translation = next((g for g in word.translations if g.language == "en"), None)
+        if en_translation:
+            before["english_translation"] = en_translation.text
+            en_translation.text = req.english_translation.strip()
         else:
-            en_gloss = Gloss(word_id=word.id, language="en", text=req.english_gloss.strip())
-            db.add(en_gloss)
-        after["english_gloss"] = req.english_gloss.strip()
+            en_translation = Translation(word_id=word.id, language="en", text=req.english_translation.strip())
+            db.add(en_translation)
+        after["english_translation"] = req.english_translation.strip()
 
     # ── Examples (replace strategy) ───────────────────────────
     if req.examples is not None:
@@ -715,7 +736,7 @@ async def merge_words(
     """Merge source word into target word. Source is soft-deleted (status='merged').
 
     - Source word's relations are re-pointed to the target
-    - Source word's glosses and examples are moved to the target (if not duplicates)
+    - Source word's translations and examples are moved to the target (if not duplicates)
     - Source word is set to status='merged'
     - Audit log entry written (action='word.merge')
     """
@@ -729,14 +750,14 @@ async def merge_words(
     source_result = await db.execute(
         select(Word)
         .where(Word.id == req.source_id)
-        .options(selectinload(Word.glosses), selectinload(Word.examples))
+        .options(selectinload(Word.translations), selectinload(Word.examples))
     )
     source = source_result.scalar_one_or_none()
 
     target_result = await db.execute(
         select(Word)
         .where(Word.id == req.target_id)
-        .options(selectinload(Word.glosses), selectinload(Word.examples))
+        .options(selectinload(Word.translations), selectinload(Word.examples))
     )
     target = target_result.scalar_one_or_none()
 
@@ -745,24 +766,40 @@ async def merge_words(
     if target is None:
         raise HTTPException(status_code=404, detail="Target word not found")
 
-    # ── Re-point relations from source → target ───────────────
-    out_result = await db.execute(
-        select(WordRelation).where(WordRelation.from_word_id == source.id)
+    # ── Re-point variations from source → target ──────────────
+    # Variations are bidirectional; check both word_id and other_word_id sides.
+    var_out_result = await db.execute(
+        select(WordVariation).where(WordVariation.word_id == source.id)
     )
-    for rel in out_result.scalars().all():
-        if rel.to_word_id != target.id:  # don't create self-relation
-            rel.from_word_id = target.id
+    for var in var_out_result.scalars().all():
+        if var.other_word_id != target.id:  # don't create self-variation
+            var.word_id = target.id
 
-    in_result = await db.execute(
-        select(WordRelation).where(WordRelation.to_word_id == source.id)
+    var_in_result = await db.execute(
+        select(WordVariation).where(WordVariation.other_word_id == source.id)
     )
-    for rel in in_result.scalars().all():
-        if rel.from_word_id != target.id:
-            rel.to_word_id = target.id
+    for var in var_in_result.scalars().all():
+        if var.word_id != target.id:
+            var.other_word_id = target.id
 
-    # ── Move glosses (skip duplicates) ────────────────────────
-    target_langs = {g.language for g in target.glosses}
-    for g in source.glosses:
+    # ── Re-point relationships from source → target ───────────
+    rel_out_result = await db.execute(
+        select(WordRelationship).where(WordRelationship.word_id == source.id)
+    )
+    for rel in rel_out_result.scalars().all():
+        if rel.other_word_id != target.id:
+            rel.word_id = target.id
+
+    rel_in_result = await db.execute(
+        select(WordRelationship).where(WordRelationship.other_word_id == source.id)
+    )
+    for rel in rel_in_result.scalars().all():
+        if rel.word_id != target.id:
+            rel.other_word_id = target.id
+
+    # ── Move translations (skip duplicates) ────────────────────────
+    target_langs = {g.language for g in target.translations}
+    for g in source.translations:
         if g.language not in target_langs:
             g.word_id = target.id
             target_langs.add(g.language)

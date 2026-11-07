@@ -21,8 +21,8 @@ from httpx import ASGITransport, AsyncClient
 from app.db import get_db
 from app.deps import get_current_user, get_optional_user
 from app.main import app
-from app.models import Suggestion, User, Vote, Word
-from app.promote import _meets_threshold, PROMOTE_MIN_AGE_DAYS, PROMOTE_MIN_NET_VOTES
+from app.models import Suggestion, User, Vote
+from app.promote import _meets_threshold
 
 
 # ═══════════════════════════════════════════════════════════════

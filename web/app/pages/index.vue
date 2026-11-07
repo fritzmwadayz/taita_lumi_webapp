@@ -62,14 +62,14 @@
               <h4 class="font-serif text-4xl text-cream font-semibold">{{ wordOfDay.headword }}</h4>
               <PosBadge v-if="wordOfDay.part_of_speech" :pos="wordOfDay.part_of_speech" />
             </div>
-            <p v-if="wordOfDay.swahili_gloss" class="text-base text-cream/90 font-medium mb-1">
-              {{ wordOfDay.swahili_gloss }}
+            <p v-if="wordOfDay.swahili_translation" class="text-base text-cream/90 font-medium mb-1">
+              {{ wordOfDay.swahili_translation }}
             </p>
-            <p v-if="wordOfDay.english_gloss" class="text-sm text-cream/70 mb-4">
-              {{ wordOfDay.english_gloss }}
+            <p v-if="wordOfDay.english_translation" class="text-sm text-cream/70 mb-4">
+              {{ wordOfDay.english_translation }}
             </p>
             <NuxtLink
-              :to="`/words/${wordOfDay.id}`"
+              :to="`/words/${wordOfDay.slug}`"
               class="focus-ring inline-flex items-center gap-1 text-xs font-semibold text-ochre-light hover:text-cream transition"
             >
               View full entry
@@ -176,23 +176,17 @@ const todayLabel = computed(() =>
   new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
 )
 
-// ── Data: recent words + word-of-the-day pool ──────────────────────────────
-// useFetch runs on the server during SSR, serializes data to the client.
-// Two calls: size=4 for recent, size=20 for the WOD pool (pick stable per-day).
-const { data: recentData, pending, error } = await useFetch('/api/words', {
-  params: { size: 4 },
+// ── Data: ONE fetch for recent words + word-of-the-day + total count ──────
+const { data: wordsData, pending, error } = await useFetch('/api/words', {
+  params: { size: 20, include_relations: false },
 })
 
-const { data: wodPool } = await useFetch('/api/words', {
-  params: { size: 20 },
-})
-
-const recentWords = computed<WordListItem[]>(() => recentData.value?.items || [])
-const totalWords = computed(() => recentData.value?.total || 0)
+const recentWords = computed<WordListItem[]>(() => (wordsData.value?.items || []).slice(0, 4))
+const totalWords = computed(() => wordsData.value?.total || 0)
 
 // Word of the day — stable per day (indexed by day of year)
 const wordOfDay = computed<WordListItem | null>(() => {
-  const items = wodPool.value?.items
+  const items = wordsData.value?.items
   if (!items?.length) return null
   const dayOfYear = Math.floor(
     (Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000,

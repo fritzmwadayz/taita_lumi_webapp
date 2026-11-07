@@ -7,7 +7,7 @@
           Join the dictionary
         </p>
         <h2 class="font-serif text-4xl text-cream leading-tight mb-4">
-          A community effort to keep Taita alive.
+          A community effort to digitize the Taita language.
         </h2>
         <p class="text-sm text-cream/80 leading-relaxed mb-6">
           Sign up to add words, vote on suggestions, and help shape the dictionary.
@@ -153,11 +153,23 @@
         </p>
       </div>
     </div>
+
+    <!-- Success overlay — shown after successful login/register.
+         Teleported to <body>, full-screen, covers the form during the
+         gap between "login succeeded" and "destination page is ready".
+         Stays visible during the page transition (we don't reset
+         showSuccess before navigating — the component unmount handles it). -->
+    <SuccessOverlay
+      :show="showSuccess"
+      :title="successTitle"
+      :subtitle="successSubtitle"
+      @close="finishSuccess"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 
 definePageMeta({
   ssr: false, // SPA mode — no SSR for authed pages
@@ -174,6 +186,30 @@ const displayName = ref('')
 const error = ref('')
 const loading = ref(false)
 
+// ── Success overlay state ──────────────────────────────────────────────
+const showSuccess = ref(false)
+const userEmail = ref('')
+const SUCCESS_MS = 1400
+
+const successTitle = computed(() =>
+  activeTab.value === 'login' ? 'Karibu tena!' : 'Karibu!',
+)
+const successSubtitle = computed(() =>
+  activeTab.value === 'login'
+    ? `Signed in as ${userEmail.value}`
+    : `Welcome, ${userEmail.value}`,
+)
+
+function finishSuccess() {
+  if (!showSuccess.value) return // guard double-navigation
+  // Navigate WITHOUT resetting showSuccess — the overlay stays visible
+  // during the page transition (out-in fade) and disappears when the
+  // login page unmounts. This fills the gap between "login succeeded"
+  // and "destination page rendered".
+  const next = route.query.next as string | undefined
+  navigateTo(next || '/')
+}
+
 // Check for OAuth error in query params (set by the callback handler)
 const oauthError = computed(() => {
   const err = route.query.error as string | undefined
@@ -186,11 +222,7 @@ const oauthError = computed(() => {
   return messages[err] || decodeURIComponent(err)
 })
 
-function redirectToNext() {
-  const next = route.query.next as string | undefined
-  navigateTo(next || '/')
-}
-
+// ── Email/password submit ──────────────────────────────────────────────
 async function onSubmit() {
   error.value = ''
   loading.value = true
@@ -200,7 +232,12 @@ async function onSubmit() {
     } else {
       await register(email.value, password.value, displayName.value || null)
     }
-    redirectToNext()
+    // Success — show the overlay, then navigate after SUCCESS_MS.
+    // The overlay covers the form so the user doesn't see the static
+    // login content during the route transition.
+    userEmail.value = email.value
+    showSuccess.value = true
+    setTimeout(finishSuccess, SUCCESS_MS)
   } catch (err: unknown) {
     const e = err as { response?: { _data?: { detail?: string } }; message?: string }
     error.value = (e.response?._data?.detail as string) || 'Something went wrong.'

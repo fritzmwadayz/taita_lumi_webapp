@@ -4,7 +4,7 @@ A suggestion is a proposal to add or correct a word (or related entity).
 Supported target types:
   - 'new_word': propose a brand new word
   - 'word':     propose a correction to an existing word's field
-  - 'gloss':    add a missing translation to an existing word
+  - target_type='translation': add a missing translation to an existing word
   - 'example':  add a missing translation to an existing example
                 (taita_text already exists; reader suggests swahili/english)
   - 'relation': link this word to another word (variation, see_also, etc.)
@@ -32,8 +32,8 @@ class NewWordProposal(BaseModel):
     dialect: str | None = None
     literal_translation: str | None = None
     morphology_notes: str | None = None
-    swahili_gloss: str | None = None
-    english_gloss: str | None = None
+    swahili_translation: str | None = None
+    english_translation: str | None = None
     examples: list[dict] | None = None  # optional examples [{taita_text, swahili_text, english_text, source_ref}]
 
 
@@ -49,21 +49,30 @@ class CreateSuggestionRequest(BaseModel):
       - field_path is the field name (e.g. 'headword', 'part_of_speech')
       - proposed_value is the new value for that field
 
-    For target_type='gloss':
+    For target_type='translation' (was 'gloss' in v1.2 — 'gloss' still accepted as a legacy alias):
       - target_id is the word UUID
-      - proposed_value: { language: 'sw'|'en', text: '...' }
+      - proposed_value: { language: 'sw'|'en', text: '...', sense_id? }
+        (Adds the translation to the existing word. Won't overwrite an existing
+        translation for the same language in the same sense.)
 
     For target_type='example':
       - target_id is the EXAMPLE UUID (the example being translated)
       - proposed_value: { language: 'sw'|'en', text: '...' }
-        (Adds the translation to the existing example.)
+        (Adds the translation to the existing example. Won't overwrite.)
+
+    For target_type='new_example':
+      - target_id is the WORD UUID (the word the example is being added to)
+      - proposed_value: { taita_text, swahili_text?, english_text?, source_ref? }
+        (Creates a new Example row attached to the word. taita_text is required;
+        the translations are optional — readers can suggest them later via
+        target_type='example' on the new example.)
 
     For target_type='relation':
       - target_id is the word UUID being linked FROM
       - proposed_value: { related_word: headword|uuid, relation_type: 'variant'|... }
     """
 
-    target_type: str = Field(..., description="'new_word' | 'word' | 'gloss' | 'example' | 'relation'")
+    target_type: str = Field(..., description="'new_word' | 'word' | 'translation' | 'example' | 'new_example' | 'relation' | 'variation' | 'relationship'")
     target_id: UUID | None = None
     field_path: str | None = None
     proposed_value: dict = Field(..., description="The proposed new value or full entity")

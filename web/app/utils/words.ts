@@ -37,8 +37,8 @@ export async function createWord(data: {
   dialect?: string | null
   literal_translation?: string | null
   morphology_notes?: string | null
-  swahili_gloss?: string | null
-  english_gloss?: string | null
+  swahili_translation?: string | null
+  english_translation?: string | null
 }): Promise<WordDetail> {
   return await $fetch<WordDetail>('/api/words', { method: 'POST', body: data })
 }
