@@ -291,7 +291,7 @@ const relationForm = reactive({
 
 function openRelationForm() {
   Object.assign(relationForm, {
-    headword: '', relation_type: '', dialect: '', part_of_speech: ',
+    headword: '', relation_type: '', dialect: '', part_of_speech:' ',
     noun_class: '', swahili_translation: '', english_translation: '', literal_translation: '', rationale: '',
   })
   relationFormError.value = ''; relationFormSuccess.value = false; relationFormOpen.value = true
