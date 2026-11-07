@@ -326,8 +326,8 @@
             </select>
           </div>
           <div>
-            <label class="field-label">Swahili translation <span class="text-terracotta">*</span></label>
-            <input v-model="addForm.swahili_translation" type="text" class="field" placeholder="mf. mlima, kilima" :disabled="addSubmitting" />
+            <label class="field-label">Swahili translation</label>
+            <input v-model="addForm.swahili_translation" type="text" class="field" placeholder="mf. mlima, kilima — enter * if unsure" :disabled="addSubmitting" />
           </div>
           <div>
             <label class="field-label">English translation</label>
@@ -500,7 +500,7 @@ async function onQuickAdd() {
   addError.value = ''
   addSuccess.value = false
   if (!addForm.headword.trim()) { addError.value = 'Please enter the Taita word.'; return }
-  if (!addForm.swahili_translation.trim()) { addError.value = 'Please enter the Swahili translation.'; return }
+  // Swahili translation is optional — enter * if unsure. Reviewers handle validation.
 
   addSubmitting.value = true
   try {

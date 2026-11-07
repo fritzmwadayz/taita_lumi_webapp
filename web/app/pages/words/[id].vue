@@ -132,11 +132,11 @@
           <p class="text-xs text-stone mb-4 leading-relaxed">A variant is a different spelling, dialect form, or conjugation. Provide as much detail as you'd give a new word — it goes into the community review queue.</p>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div><label class="field-label">Variant word <span class="text-terracotta">*</span></label><input v-model="relationForm.headword" type="text" class="field" placeholder="e.g. bhaka" /></div>
-            <div><label class="field-label">Relation type <span class="text-terracotta">*</span></label><select v-model="relationForm.relation_type" class="field"><option value="variant">Variant (different spelling/dialect)</option><option value="plural">Plural</option><option value="singular">Singular</option><option value="conjugation">Conjugation (different tense/person)</option><option value="antonym">Opposite</option><option value="derived">Derived from</option><option value="see_also">See also</option></select></div>
+            <div><label class="field-label">Relation type <span class="text-stone-light font-normal">(optional — leave blank if unsure)</span></label><select v-model="relationForm.relation_type" class="field"><option value="">— Not sure —</option><option value="variant">Variant — different spelling or dialect</option><option value="plural">Plural — more than one</option><option value="singular">Singular — one</option><option value="conjugation">Conjugation — different tense or form of a verb</option><option value="antonym">Antonym — opposite meaning</option><option value="derived">Derived from — comes from this word</option><option value="see_also">See also — related but different</option></select></div>
             <div><label class="field-label">Dialect</label><select v-model="relationForm.dialect" class="field"><option value="">— Any / Unknown —</option><option>Dawida</option><option>Sagala</option><option>Kasighau</option></select></div>
             <div><label class="field-label">Part of speech</label><select v-model="relationForm.part_of_speech" class="field"><option value="">— Skip —</option><option>noun</option><option>verb</option><option>adjective</option><option>adverb</option><option>phrase</option></select></div>
             <div><label class="field-label">Noun class</label><select v-model="relationForm.noun_class" class="field"><option value="">—</option><option>1/2 — person/people</option><option>3/4 — tree/things</option><option>5/6 — fruit/collective</option><option>7/8 — object/objects</option><option>9/10 — animal/animals</option><option>11 — long things</option><option>14 — abstraction</option><option>15 — infinitive</option></select></div>
-            <div><label class="field-label">Swahili translation <span class="text-terracotta">*</span></label><input v-model="relationForm.swahili_translation" type="text" class="field" placeholder="mf. amekuja" /></div>
+            <div><label class="field-label">Swahili translation</label><input v-model="relationForm.swahili_translation" type="text" class="field" placeholder="mf. amekuja — enter * if unsure" /></div>
             <div class="md:col-span-2"><label class="field-label">English translation <span class="text-stone-light font-normal">(optional)</span></label><input v-model="relationForm.english_translation" type="text" class="field" placeholder="e.g. he/she has come" /></div>
             <div class="md:col-span-2"><label class="field-label">Literal translation <span class="text-stone-light font-normal">(optional)</span></label><input v-model="relationForm.literal_translation" type="text" class="field" placeholder="e.g. 'he has come hither'" /></div>
             <div class="md:col-span-2"><label class="field-label">Notes for reviewers <span class="text-stone-light font-normal">(optional)</span></label><textarea v-model="relationForm.rationale" rows="2" class="field" placeholder="Why does this variant belong here?"></textarea></div>
@@ -285,13 +285,13 @@ const relationFormSubmitting = ref(false)
 const relationFormError = ref('')
 const relationFormSuccess = ref(false)
 const relationForm = reactive({
-  headword: '', relation_type: 'variant', dialect: '', part_of_speech: '',
+  headword: '', relation_type: '', dialect: '', part_of_speech: '',
   noun_class: '', swahili_translation: '', english_translation: '', literal_translation: '', rationale: '',
 })
 
 function openRelationForm() {
   Object.assign(relationForm, {
-    headword: '', relation_type: 'variant', dialect: '', part_of_speech: '',
+    headword: '', relation_type: '', dialect: '', part_of_speech: ',
     noun_class: '', swahili_translation: '', english_translation: '', literal_translation: '', rationale: '',
   })
   relationFormError.value = ''; relationFormSuccess.value = false; relationFormOpen.value = true
@@ -302,7 +302,7 @@ function closeRelationForm() {
 
 async function submitRelationSuggestion() {
   if (!relationForm.headword.trim()) { relationFormError.value = 'Please enter the variant word.'; return }
-  if (!relationForm.swahili_translation.trim()) { relationFormError.value = 'Please enter the Swahili translation.'; return }
+  // Swahili translation is optional — enter * if unsure. Reviewers handle validation.
   relationFormSubmitting.value = true; relationFormError.value = ''; relationFormSuccess.value = false
   try {
     await createSuggestion({

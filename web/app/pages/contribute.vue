@@ -15,7 +15,7 @@
               <template v-if="!isAuthed"> for a higher rate limit.</template>
             </template>
           </template>
-          <template v-else>Help review and improve the dictionary. Vote on suggestions or (if you're a reviewer) accept them directly.</template>
+          <template v-else>Help review and improve the dictionary. Vote on suggestions or (if you are a reviewer) accept them directly.</template>
         </p>
       </div>
     </section>
@@ -72,7 +72,7 @@
           <div><label class="field-label">Dialect <span class="text-stone-light font-normal">(optional)</span></label><select v-model="form.dialect" class="field" :disabled="submitting"><option value="">— Any / Unknown —</option><option>Dawida</option><option>Sagala</option><option>Kasighau</option></select></div>
           <div><label class="field-label">Part of speech <span class="text-stone-light font-normal">(optional)</span></label><select v-model="form.part_of_speech" class="field" :disabled="submitting"><option value="">— Skip —</option><option>noun</option><option>verb</option><option>adjective</option><option>adverb</option><option>phrase</option></select></div>
           <div><label class="field-label">Noun class <span class="text-stone-light font-normal">(optional)</span></label><select v-model="form.noun_class" class="field" :disabled="submitting"><option value="">—</option><option>1/2 — person/people</option><option>3/4 — tree/things</option><option>5/6 — fruit/collective</option><option>7/8 — object/objects</option><option>9/10 — animal/animals</option><option>11 — long things</option><option>14 — abstraction</option><option>15 — infinitive</option></select></div>
-          <div><label class="field-label">Swahili translation <span class="text-terracotta">*</span></label><input v-model="form.swahili_translation" type="text" class="field" placeholder="mf. mlima, kilima" :disabled="submitting" /></div>
+          <div><label class="field-label">Swahili translation</label><input v-model="form.swahili_translation" type="text" class="field" placeholder="mf. mlima, kilima — enter * if unsure" :disabled="submitting" /></div>
           <div><label class="field-label">English translation <span class="text-stone-light font-normal">(optional)</span></label><input v-model="form.english_translation" type="text" class="field" placeholder="e.g. mountain, hill" :disabled="submitting" /></div>
           <div class="md:col-span-2"><label class="field-label">Literal translation <span class="text-stone-light font-normal">(optional)</span></label><input v-model="form.literal_translation" type="text" class="field" placeholder="e.g. 'I have climbed for him/her'" :disabled="submitting" /></div>
           <div v-if="useSuggestPath" class="md:col-span-2"><label class="field-label">Notes for reviewers <span class="text-stone-light font-normal">(optional)</span></label><textarea v-model="rationale" rows="3" class="field" placeholder="Why is this word needed?" :disabled="submitting"></textarea></div>
@@ -177,7 +177,7 @@ const duplicateWord = ref<{ id: string; headword: string } | null>(null)
 async function onSubmit() {
   formError.value = ''; success.value = false; duplicateWord.value = null
   if (!form.headword.trim()) { formError.value = 'Please enter the Taita word.'; return }
-  if (!form.swahili_translation.trim()) { formError.value = 'Please enter the Swahili translation.'; return }
+  // Swahili translation is optional — enter * if unsure. Reviewers handle validation.
   submitting.value = true
   try {
     if (honeypot.value) { success.value = true; successId.value = 'fake-id'; return }
