@@ -40,9 +40,9 @@
       <!-- Always present in the DOM; translated off-screen when the hero is
            visible. pointer-events: none when hidden so it never blocks clicks. -->
       <div
-        class="scroll-strip fixed top-0 left-0 right-0 z-30 bg-cream-50/95 backdrop-blur border-b border-cream-200 shadow-strip"
+        class="scroll-strip fixed top-[57px] left-0 right-0 z-30 bg-cream-50/95 backdrop-blur border-b border-cream-200 shadow-strip"
         :class="{ 'scroll-strip--hidden': !stripVisible }"
-        aria-hidden="!stripVisible ? 'true' : 'false'"
+        :aria-hidden="!stripVisible"
       >
         <div class="max-w-[820px] mx-auto px-6 sm:px-8">
           <div class="max-w-[680px] mx-auto flex items-center justify-between py-2 gap-3">
@@ -216,7 +216,7 @@
                         <p v-else class="font-serif text-lg text-stone-light italic leading-snug">No definition recorded.</p>
                         <div class="flex items-center gap-2 mt-1.5 flex-wrap">
                           <PosBadge v-if="sense.part_of_speech" :pos="sense.part_of_speech" />
-                          <p v-if="sense.notes" class="text-xs text-stone leading-relaxed">{{ sense.notes }}</p>
+                          <p v-if="sense.notes && !sense.notes.includes('auto-created from pre-senses')" class="text-xs text-stone leading-relaxed">{{ sense.notes }}</p>
                         </div>
                       </div>
                       <!-- Pencil edit (reviewer+ only, hidden when another sense is being edited) -->
@@ -320,6 +320,7 @@
           <!-- Translation suggestion form -->
           <div v-if="translationFormOpen" class="mt-4 bg-cream-50 border border-cream-200 rounded-lg p-4">
             <p class="text-xs font-semibold text-ink mb-3">Suggest {{ translationFormLanguage === 'sw' ? 'Swahili' : 'English' }} translation for "{{ word.headword }}"</p>
+            <input v-model="translationHoneypot" type="text" name="website" style="position: absolute; left: -9999px; opacity: 0; pointer-events: none" tabindex="-1" autocomplete="off" aria-hidden="true" />
             <input
               v-model="translationFormText"
               type="text"
@@ -390,6 +391,7 @@
           <!-- Translation suggestion form -->
           <div v-if="translationFormOpen" class="mt-4 bg-cream-50 border border-cream-200 rounded-lg p-4">
             <p class="text-xs font-semibold text-ink mb-3">Suggest {{ translationFormLanguage === 'sw' ? 'Swahili' : 'English' }} translation for "{{ word.headword }}"</p>
+            <input v-model="translationHoneypot" type="text" name="website" style="position: absolute; left: -9999px; opacity: 0; pointer-events: none" tabindex="-1" autocomplete="off" aria-hidden="true" />
             <input v-model="translationFormText" type="text" class="field mb-3" :placeholder="translationFormLanguage === 'sw' ? 'mf. mlima, kilima' : 'e.g. mountain, hill'" @keyup.enter="submitTranslationSuggestion" />
             <div v-if="translationFormError" class="text-xs text-terracotta mb-2">{{ translationFormError }}</div>
             <div v-if="translationFormSuccess" class="text-xs text-forest mb-2">Suggestion submitted! It'll appear once the community votes on it.</div>
@@ -426,6 +428,7 @@
           <!-- Rich inline variation form -->
           <Transition name="expand">
             <div v-if="relationFormOpen" class="mt-4 bg-cream-50 border border-cream-200 rounded-xl p-5">
+              <input v-model="relationHoneypot" type="text" name="website" style="position: absolute; left: -9999px; opacity: 0; pointer-events: none" tabindex="-1" autocomplete="off" aria-hidden="true" />
               <div class="flex items-center justify-between mb-4">
                 <p class="text-sm font-semibold text-ink">Suggest a variant of <span class="font-serif text-base text-forest">{{ word.headword }}</span></p>
                 <button class="focus-ring text-stone hover:text-terracotta p-1 rounded" aria-label="Collapse form" @click="closeRelationForm">
@@ -686,6 +689,7 @@ const translationFormText = ref('')
 const translationFormSubmitting = ref(false)
 const translationFormError = ref('')
 const translationFormSuccess = ref(false)
+const translationHoneypot = ref('')
 
 function openTranslationForm(lang: string) {
   // Close other open forms
@@ -701,6 +705,8 @@ function closeTranslationForm() {
 
 async function submitTranslationSuggestion() {
   if (!translationFormText.value.trim()) { translationFormError.value = 'Please enter a translation.'; return }
+  // Honeypot — silently "succeed" without sending
+  if (translationHoneypot.value) { translationFormSuccess.value = true; translationFormText.value = ''; return }
   translationFormSubmitting.value = true; translationFormError.value = ''; translationFormSuccess.value = false
   try {
     await createSuggestion({
@@ -719,6 +725,7 @@ const relationFormOpen = ref(false)
 const relationFormSubmitting = ref(false)
 const relationFormError = ref('')
 const relationFormSuccess = ref(false)
+const relationHoneypot = ref('')
 const relationForm = reactive({
   headword: '', relation_type: '', dialect: '', part_of_speech: '',
   noun_class: '', swahili_translation: '', english_translation: '', literal_translation: '', rationale: '',
@@ -737,6 +744,8 @@ function closeRelationForm() {
 
 async function submitRelationSuggestion() {
   if (!relationForm.headword.trim()) { relationFormError.value = 'Please enter the variant word.'; return }
+  // Honeypot — silently "succeed" without sending
+  if (relationHoneypot.value) { relationFormSuccess.value = true; relationForm.headword = ''; return }
   relationFormSubmitting.value = true; relationFormError.value = ''; relationFormSuccess.value = false
   try {
     await createSuggestion({

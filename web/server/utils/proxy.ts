@@ -105,6 +105,23 @@ export async function proxyToApi(event: H3Event, path: string, options: ProxyOpt
       }
     }
 
+    // ── 403: blocked user — clear session and surface the block ──────────
+    // The backend returns 403 with "This account has been blocked" when a
+    // blocked user tries any authed endpoint. We clear the session so the
+    // client doesn't keep retrying with the blocked token.
+    if (
+      error.response?.status === 403 &&
+      typeof error.response?._data?.detail === 'string' &&
+      error.response._data.detail.toLowerCase().includes('blocked')
+    ) {
+      await clearUserSession(event)
+      throw createError({
+        statusCode: 403,
+        message: 'This account has been blocked.',
+        data: { blocked: true },
+      })
+    }
+
     // ── Re-throw other errors with the backend's detail if available ─────
     throw createError({
       statusCode: error.response?.status || 500,

@@ -37,7 +37,7 @@
             <td class="px-4 py-3 text-xs text-stone hidden md:table-cell">{{ formatDate(user.created_at) }}</td>
             <td class="px-4 py-3 text-xs text-stone-light hidden md:table-cell">{{ user.last_seen_at ? timeAgo(user.last_seen_at) : 'never' }}</td>
             <td class="px-4 py-3 text-right">
-              <div class="flex items-center justify-end gap-1.5">
+              <div v-if="user.id !== currentUserId" class="flex items-center justify-end gap-1.5">
                 <button
                   v-if="user.role !== 'admin'"
                   class="focus-ring text-[10px] font-medium text-forest-dark bg-forest-tint hover:bg-forest/20 px-2 py-1 rounded transition"
@@ -69,6 +69,7 @@
                   @click="toggleBlock(user.id, false)"
                 >Unblock</button>
               </div>
+              <span v-else class="text-[10px] text-stone-light italic">You</span>
             </td>
           </tr>
         </tbody>
@@ -90,13 +91,14 @@
         <p class="text-xs text-stone-light mb-1">{{ user.email }}</p>
         <p class="text-[10px] text-stone-light mb-2">Joined {{ formatDate(user.created_at) }} · {{ user.last_seen_at ? timeAgo(user.last_seen_at) : 'never' }}</p>
         <div v-if="user.is_blocked" class="inline-block text-[10px] text-terracotta-dark bg-terracotta-wash px-1.5 py-0.5 rounded font-semibold mb-2">blocked</div>
-        <div class="flex flex-wrap gap-1.5">
+        <div v-if="user.id !== currentUserId" class="flex flex-wrap gap-1.5">
           <button v-if="user.role !== 'admin'" class="text-[10px] font-medium text-forest-dark bg-forest-tint px-2 py-1 rounded" :disabled="actingId === user.id" @click="changeRole(user.id, 'admin')">Make admin</button>
           <button v-if="user.role === 'admin'" class="text-[10px] font-medium text-stone-dark bg-cream-200 px-2 py-1 rounded" :disabled="actingId === user.id" @click="changeRole(user.id, 'user')">Demote</button>
           <button v-if="user.role !== 'reviewer' && user.role !== 'admin'" class="text-[10px] font-medium text-ochre-dark bg-ochre-tint px-2 py-1 rounded" :disabled="actingId === user.id" @click="changeRole(user.id, 'reviewer')">Make reviewer</button>
           <button v-if="!user.is_blocked" class="text-[10px] font-medium text-terracotta-dark bg-terracotta-tint px-2 py-1 rounded" :disabled="actingId === user.id" @click="toggleBlock(user.id, true)">Block</button>
           <button v-else class="text-[10px] font-medium text-forest-dark bg-forest-tint px-2 py-1 rounded" :disabled="actingId === user.id" @click="toggleBlock(user.id, false)">Unblock</button>
         </div>
+        <p v-else class="text-[10px] text-stone-light italic">You</p>
       </div>
     </div>
     </div>
@@ -115,6 +117,8 @@ const { data, pending, refresh } = await useFetch<{ items: AdminUser[]; total: n
 const users = computed(() => data.value?.items || [])
 const total = computed(() => data.value?.total || 0)
 const actingId = ref<string | null>(null)
+const { user: currentUser } = useAuth()
+const currentUserId = computed(() => currentUser.value?.id)
 
 async function changeRole(userId: string, role: string) {
   actingId.value = userId

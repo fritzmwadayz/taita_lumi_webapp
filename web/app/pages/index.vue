@@ -4,14 +4,14 @@
     <section class="px-4 md:px-12 py-16 grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-12 items-center">
       <div class="col-span-7">
         <p class="text-xs font-semibold tracking-widest uppercase text-ochre mb-3 anim-fade-up">
-          Kamusi ya Kidawida
+          Kamusi ya Kitaita
         </p>
         <h1 class="font-serif text-3xl md:text-5xl text-forest-dark leading-tight mb-4 anim-fade-up anim-delay-1">
-          A living dictionary of the Taita language.
+          A dictionary of the Taita language.
         </h1>
         <p class="text-base text-stone leading-relaxed mb-8 max-w-lg anim-fade-up anim-delay-2">
-          Built by and for speakers of Dawida, Sagala, and Kasighau. Browse,
-          search, and contribute — Taita to Swahili and English.
+          Built for the speakers and learners of the Taita laguage. You can browse,
+          search, and contribute to grow the dictionary. Contains Taita to Swahili and English.
         </p>
 
         <!-- Search bar — uses /api/search for autocomplete dropdown -->

@@ -78,17 +78,18 @@ export default defineNuxtConfig({
     pageTransition: { name: 'page', mode: 'out-in' },
     head: {
       htmlAttrs: { lang: 'en' },
-      title: 'Lumi — A living dictionary of the Taita language',
+      title: 'Lumi - A dictionary of the Taita language',
       meta: [
         { charset: 'utf-8' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
         {
           name: 'description',
           content:
-            'Lumi is a community dictionary of the Taita language (Dawida, Sagala, Kasighau). Browse, search, and contribute — Taita to Swahili and English.',
+            'Lumi is a community dictionary of the Taita language. You can browse, search, and contribute to grow the dictionary\
+            contains Taita to Swahili and English.',
         },
         // Open Graph basics (expanded per-page in Phase 3)
-        { property: 'og:title', content: 'Lumi — A living dictionary of the Taita language' },
+        { property: 'og:title', content: 'Lumi a dictionary of the Taita language' },
         { property: 'og:description', content: 'Browse, search, and contribute to the Taita dictionary.' },
         { property: 'og:type', content: 'website' },
       ],

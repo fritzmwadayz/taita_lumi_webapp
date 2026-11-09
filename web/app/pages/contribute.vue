@@ -93,19 +93,19 @@
 
         <div v-if="formError" class="mt-6 bg-terracotta/10 border border-terracotta/30 rounded-lg p-4 text-sm text-terracotta-dark">
           {{ formError }}
-          <div v-if="duplicateWord" class="mt-2"><NuxtLink :to="`/words/${duplicateWord.id}`" class="text-forest hover:underline font-medium">See "{{ duplicateWord.headword }}" →</NuxtLink></div>
+          <div v-if="duplicateWord" class="mt-2"><NuxtLink :to="`/words/${duplicateWord.slug || duplicateWord.id}`" class="text-forest hover:underline font-medium">See "{{ duplicateWord.headword }}" →</NuxtLink></div>
         </div>
 
         <div v-if="success" class="mt-6 bg-forest/10 border border-forest/30 rounded-lg p-4 text-sm text-forest-dark">
           <p class="font-semibold mb-1">{{ useSuggestPath ? 'Suggestion submitted!' : 'Word added!' }}</p>
           <p class="text-xs">
             <template v-if="useSuggestPath">Your suggestion is now open for community review. <button @click="activeTab = 'suggestions'" class="text-forest hover:underline font-medium">View it →</button></template>
-            <template v-else>The word is now live in the dictionary. <NuxtLink :to="`/words/${successId}`" class="text-forest hover:underline font-medium">View it →</NuxtLink></template>
+            <template v-else>The word is now live in the dictionary. <NuxtLink :to="`/words/${successSlug || successId}`" class="text-forest hover:underline font-medium">View it →</NuxtLink></template>
           </p>
         </div>
 
         <div class="mt-6 md:mt-8 flex items-center gap-4">
-          <button type="submit" :disabled="submitting" class="focus-ring btn btn-primary btn-lg">{{ submitting ? 'Submitting...' : useSuggestPath ? 'Submit suggestion' : 'Add word to dictionary' }}</button>
+          <button type="submit" :disabled="submitting || rateLimited" class="focus-ring btn btn-primary btn-lg">{{ rateLimited ? 'Please wait...' : submitting ? 'Submitting...' : useSuggestPath ? 'Submit suggestion' : 'Add word to dictionary' }}</button>
         </div>
       </form>
     </div>
@@ -181,7 +181,10 @@ const submitting = ref(false)
 const formError = ref('')
 const success = ref(false)
 const successId = ref<string | null>(null)
-const duplicateWord = ref<{ id: string; headword: string } | null>(null)
+const successSlug = ref<string | null>(null)
+const duplicateWord = ref<{ id: string; headword: string; slug?: string } | null>(null)
+const rateLimited = ref(false)
+const rateLimitTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 
 const submitted = ref(false)
 const isDirty = computed(() =>
@@ -253,6 +256,7 @@ async function onSubmit() {
         rationale: rationale.value.trim() || null,
       })
       success.value = true; successId.value = (result as { id: string }).id
+      successSlug.value = (result as { slug?: string }).slug ?? null
       toast.success('Asante! Your suggestion is in the review queue')
       submitted.value = true
     } else {
@@ -264,6 +268,7 @@ async function onSubmit() {
         examples: examplesPayload,
       })
       success.value = true; successId.value = result.id
+      successSlug.value = result.slug
       toast.success('Word added to the dictionary')
       submitted.value = true
     }
@@ -272,12 +277,20 @@ async function onSubmit() {
     examples.value = []
   } catch (err: unknown) {
     const e = err as { response?: { status?: number; _data?: { detail?: unknown; existing_word_id?: string; existing_headword?: string; message?: string } }; message?: string }
-    if (e.response?.status === 429) { formError.value = 'Rate limit exceeded. Try again later or sign in.' }
+    if (e.response?.status === 429) {
+      formError.value = 'Rate limit exceeded. Try again later or sign in for a higher limit.'
+      rateLimited.value = true
+      // Re-enable after 60 seconds (backend uses a 1-hour sliding window, but
+      // the user can try again sooner if they sign in — this just prevents
+      // immediate re-submission spam).
+      if (rateLimitTimer.value) clearTimeout(rateLimitTimer.value)
+      rateLimitTimer.value = setTimeout(() => { rateLimited.value = false }, 60000)
+    }
     else if (e.response?.status === 409) {
       const detail = e.response?._data?.detail
       if (detail && typeof detail === 'object' && (detail as { existing_word_id?: string }).existing_word_id) {
-        const d = detail as { existing_word_id: string; existing_headword: string; message?: string }
-        duplicateWord.value = { id: d.existing_word_id, headword: d.existing_headword }
+        const d = detail as { existing_word_id: string; existing_headword: string; existing_slug?: string; message?: string }
+        duplicateWord.value = { id: d.existing_word_id, headword: d.existing_headword, slug: d.existing_slug }
         formError.value = d.message || 'This word already exists.'
       } else { formError.value = typeof detail === 'string' ? detail : 'A word with this spelling already exists.' }
     } else if (e.response?.status === 401) { formError.value = 'Please sign in to add words directly.' }

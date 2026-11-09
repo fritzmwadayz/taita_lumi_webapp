@@ -94,13 +94,19 @@ const pageSize = 20
 const actionFilter = ref('')
 
 const actionTypes = [
-  'suggestion.accept',
-  'suggestion.reject',
-  'suggestion.auto_promote',
   'word.create',
-  'word.edit',
+  'word.update',
   'word.hide',
   'word.merge',
+  'word.import',
+  'translation.create',
+  'example.create',
+  'sense.create',
+  'sense.update',
+  'variation.create',
+  'relationship.create',
+  'suggestion.accept',
+  'suggestion.reject',
   'user.role.change',
   'user.block',
   'user.unblock',

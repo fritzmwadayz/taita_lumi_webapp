@@ -1,7 +1,4 @@
 /** @type {import('tailwindcss').Config} */
-// Lumi — Tailwind v3 config (ported from the Vue source + refined).
-// Color tokens match the original earthy palette; added hover/light/tint variants
-// for the redesign's button states and focus rings.
 
 export default {
   content: [
