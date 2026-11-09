@@ -343,6 +343,11 @@
           </div>
         </div>
 
+        <!-- Examples section -->
+        <div class="mt-6 border-t border-cream-200 pt-6">
+          <ExampleEditor v-model="addExamples" :disabled="addSubmitting" :max="5" />
+        </div>
+
         <div v-if="addError" class="mt-4 bg-terracotta/10 border border-terracotta/30 rounded-lg p-3 text-sm text-terracotta-dark">{{ addError }}</div>
         <div v-if="addSuccess" class="mt-4 bg-forest/10 border border-forest/30 rounded-lg p-3 text-sm text-forest-dark">
           <p class="font-semibold mb-1">{{ addMode === 'direct' ? 'Word added!' : 'Suggestion submitted!' }}</p>
@@ -365,6 +370,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import type { SuggestionListItem, WordListItem } from '~/types'
+import type { ExampleInput } from '~/utils/words'
 
 definePageMeta({
   ssr: false,
@@ -492,6 +498,7 @@ const addForm = reactive({
   swahili_translation: '', english_translation: '', literal_translation: '',
 })
 const addRationale = ref('')
+const addExamples = ref<ExampleInput[]>([])
 const addSubmitting = ref(false)
 const addError = ref('')
 const addSuccess = ref(false)
@@ -501,6 +508,26 @@ async function onQuickAdd() {
   addSuccess.value = false
   if (!addForm.headword.trim()) { addError.value = 'Please enter the Taita word.'; return }
   // Swahili translation is optional — enter * if unsure. Reviewers handle validation.
+
+  // Normalize examples: drop rows with no taita_text, null out empty optionals.
+  const cleanExamples = addExamples.value
+    .map(ex => ({
+      taita_text: ex.taita_text.trim(),
+      swahili_text: ex.swahili_text?.trim() || null,
+      english_text: ex.english_text?.trim() || null,
+      source_ref: ex.source_ref?.trim() || null,
+    }))
+    .filter(ex => ex.taita_text.length > 0)
+  const examplesPayload = cleanExamples.length > 0 ? cleanExamples : null
+
+  // Swahili-required validation (only if there are any examples)
+  if (cleanExamples.length > 0) {
+    const missingSw = cleanExamples.findIndex(ex => !ex.swahili_text)
+    if (missingSw !== -1) {
+      addError.value = `Example ${missingSw + 1} is missing its Swahili translation. Please add one before submitting.`
+      return
+    }
+  }
 
   addSubmitting.value = true
   try {
@@ -513,6 +540,7 @@ async function onQuickAdd() {
         literal_translation: addForm.literal_translation || null,
         swahili_translation: addForm.swahili_translation.trim(),
         english_translation: addForm.english_translation.trim() || null,
+        examples: examplesPayload,
       })
     } else {
       await createSuggestion({
@@ -525,6 +553,7 @@ async function onQuickAdd() {
           literal_translation: addForm.literal_translation || null,
           swahili_translation: addForm.swahili_translation.trim(),
           english_translation: addForm.english_translation.trim() || null,
+          examples: examplesPayload,
         },
         rationale: addRationale.value.trim() || null,
       })
@@ -532,6 +561,7 @@ async function onQuickAdd() {
     addSuccess.value = true
     Object.assign(addForm, { headword: '', dialect: '', part_of_speech: '', noun_class: '', swahili_translation: '', english_translation: '', literal_translation: '' })
     addRationale.value = ''
+    addExamples.value = []
   } catch (err: unknown) {
     const e = err as { response?: { _data?: { detail?: string } }; message?: string }
     addError.value = (e.response?._data?.detail as string) || 'Something went wrong.'

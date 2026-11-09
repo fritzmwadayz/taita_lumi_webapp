@@ -131,8 +131,14 @@ export interface WordDetail {
 
 export interface SearchResponse {
   query: string
-  items: WordListItem[]
+  items: SearchResultItem[]
   total: number
+}
+
+// v1.4 — search results extend WordListItem with a similarity score (0..1, 3 decimals).
+// Backend returns this from GET /api/search; null when Postgres similarity() returns NULL.
+export interface SearchResultItem extends WordListItem {
+  similarity: number | null
 }
 
 // v1.3: 'gloss' → 'translation'. 'gloss' kept as legacy alias for in-flight suggestions.

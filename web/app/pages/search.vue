@@ -1,40 +1,50 @@
 <template>
   <div>
-    <!-- Search bar -->
+    <!-- Search bar — uses /api/search for autocomplete dropdown -->
     <section class="px-8 py-6 border-b border-cream-200">
-      <div class="flex items-center gap-3 bg-cream-50 border border-cream-300 rounded-xl px-5 py-3 max-w-3xl">
-        <svg class="w-5 h-5 text-stone" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M21 21l-4.35-4.35M11 18a7 7 0 100-14 7 7 0 000 14z"
-          />
-        </svg>
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="Tafuta neno... / Search a word..."
-          class="flex-1 bg-transparent text-sm text-ink placeholder-stone-light outline-none"
-          @input="onSearchInput"
-          @keyup.enter="runSearch"
-        />
-        <button
-          v-if="searchQuery"
-          class="focus-ring text-stone hover:text-terracotta"
-          @click="clearSearch"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
+      <SearchBar
+        v-model="searchQuery"
+        size="md"
+        clearable
+        wrapper-class="max-w-3xl"
+        placeholder="Tafuta neno... / Search a word..."
+        @submit="runSearch"
+        @select="goToWord"
+        @clear="clearSearch"
+      />
+    </section>
+
+    <!-- Recent searches (when query is empty) -->
+    <section v-if="!debouncedQuery && recent.length" class="px-8 py-3 flex flex-wrap items-center gap-2">
+      <span class="text-[10px] uppercase tracking-widest text-stone-light font-semibold">Recent:</span>
+      <button
+        v-for="q in recent"
+        :key="q"
+        class="focus-ring inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-cream-100 text-stone-dark hover:bg-cream-200 transition"
+        @click="applyRecent(q)"
+      >
+        {{ q }}
+        <span class="text-stone-light hover:text-terracotta" @click.stop="remove(q)">×</span>
+      </button>
+      <button class="focus-ring text-[10px] text-stone-light hover:text-terracotta underline" @click="clear()">Clear</button>
     </section>
 
     <!-- Layout: sidebar + results -->
     <section class="px-8 py-8 grid grid-cols-1 md:grid-cols-12 gap-8">
-      <!-- Filter sidebar -->
-      <aside class="col-span-3">
+      <!-- Mobile: collapsible filter toggle (browse mode only) -->
+      <div v-if="!searchMode" class="md:hidden mb-4">
+        <button
+          class="focus-ring inline-flex items-center gap-1.5 text-sm font-medium text-stone-dark"
+          :aria-expanded="filtersOpen"
+          @click="filtersOpen = !filtersOpen"
+        >
+          Filters
+          <svg class="w-4 h-4 transition-transform" :class="{ 'rotate-180': filtersOpen }" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+        </button>
+      </div>
+
+      <!-- Filter sidebar — only in browse mode (search mode hides it; /api/search doesn't accept pos/dialect) -->
+      <aside v-if="!searchMode" :class="['col-span-3', filtersOpen ? 'block' : 'hidden', 'md:block']">
         <h3 class="text-xs font-semibold uppercase tracking-widest text-stone mb-4">Filter</h3>
 
         <div class="space-y-5 text-sm">
@@ -82,8 +92,17 @@
         </div>
       </aside>
 
+      <!-- Search-mode sidebar replacement: a small info panel -->
+      <aside v-else class="col-span-3 hidden md:block">
+        <h3 class="text-xs font-semibold uppercase tracking-widest text-stone mb-4">Search</h3>
+        <div class="bg-cream-50 border border-cream-200 rounded-lg p-3 text-xs text-stone leading-relaxed">
+          <p class="text-stone-dark mb-1">Ranked by similarity to "{{ debouncedQuery }}".</p>
+          <p class="text-stone-light">Filters are available in <button class="text-forest hover:underline focus-ring rounded" @click="clearSearch">browse mode</button>.</p>
+        </div>
+      </aside>
+
       <!-- Results -->
-      <div class="col-span-9">
+      <div :class="searchMode ? 'col-span-12 md:col-span-9' : 'col-span-9'">
         <div class="flex items-center justify-between mb-4">
           <p class="text-xs text-stone">
             <span v-if="pending">Searching...</span>
@@ -93,22 +112,18 @@
               <span v-if="debouncedQuery"> for "{{ debouncedQuery }}"</span>
             </span>
           </p>
-          <div class="flex items-center gap-2 text-xs text-stone">
+          <div v-if="searchMode" class="flex items-center gap-2 text-xs text-stone">
             <span>Sort:</span>
             <button class="font-semibold text-forest">Relevance</button>
           </div>
         </div>
 
-        <!-- Loading -->
-        <div v-if="pending" class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div
-            v-for="i in 6"
-            :key="i"
-            class="bg-cream-50 border border-cream-200 rounded-xl p-4 animate-pulse"
-          >
-            <div class="h-5 bg-cream-200 rounded w-1/3 mb-2"></div>
-            <div class="h-4 bg-cream-200 rounded w-2/3 mb-1"></div>
-            <div class="h-3 bg-cream-100 rounded w-1/2"></div>
+        <!-- Loading (skeletons) -->
+        <div v-if="pending" class="grid grid-cols-1 md:grid-cols-2 gap-3" aria-busy="true">
+          <div v-for="i in 6" :key="i" class="bg-cream-50 border border-cream-200 rounded-xl p-4">
+            <UiSkeleton height="1.25rem" width="33%" class="rounded mb-2" />
+            <UiSkeleton height="0.875rem" width="66%" class="rounded mb-1" />
+            <UiSkeleton height="0.75rem" width="50%" class="rounded" />
           </div>
         </div>
 
@@ -132,11 +147,21 @@
 
         <!-- Results grid -->
         <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <WordCard v-for="word in words" :key="word.id" :word="word" />
+          <WordCard
+            v-for="word in words"
+            :key="word.id"
+            :word="word"
+            :show-similarity="searchMode"
+          />
         </div>
 
-        <!-- Load more -->
-        <div v-if="hasMore" class="mt-6 text-center">
+        <!-- Search mode: no pagination (backend caps at 50) -->
+        <div v-if="!pending && searchMode && words.length > 0" class="mt-4 bg-cream-100 border border-cream-200 rounded-lg p-2.5 text-[10px] text-stone-light text-center">
+          Showing {{ words.length }} of {{ total }} match{{ total === 1 ? '' : 'es' }} · /api/search returns up to 50 — no pagination
+        </div>
+
+        <!-- Load more — browse mode only -->
+        <div v-if="!searchMode && hasMore" class="mt-6 text-center">
           <button
             :disabled="loadingMore"
             class="focus-ring btn btn-secondary btn-md"
@@ -154,8 +179,14 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed, watch } from 'vue'
-import type { WordListItem } from '~/types'
+import { computed, reactive, ref, watch } from 'vue'
+import type { SearchResultItem, WordListItem } from '~/types'
+
+// ── Recent searches (localStorage, max 8, deduped) ─────────────────────────
+const { recent, add, remove, clear } = useRecentSearches()
+
+// ── Mobile collapsible filters ─────────────────────────────────────────────
+const filtersOpen = ref(false)
 
 const route = useRoute()
 const router = useRouter()
@@ -165,8 +196,9 @@ const searchQuery = ref((route.query.q as string) || '')
 const debouncedQuery = ref(searchQuery.value)
 const page = ref(1)
 const pageSize = 20
+const SEARCH_LIMIT = 50
 const loadingMore = ref(false)
-const allWords = ref<WordListItem[]>([])
+const allWords = ref<Array<WordListItem | SearchResultItem>>([])
 
 const filters = reactive({
   pos: (route.query.pos as string) || null,
@@ -182,48 +214,95 @@ const posOptions = [
 
 const dialectOptions = ['Dawida', 'Sagala', 'Kasighau']
 
-// ── Debounced search ───────────────────────────────────────────────────────
-let searchDebounce: ReturnType<typeof setTimeout> | null = null
+// ── Mode: search (q non-empty → /api/search) vs browse (q empty → /api/words) ──
+const searchMode = computed(() => !!debouncedQuery.value.trim())
 
-function onSearchInput() {
-  if (searchDebounce) clearTimeout(searchDebounce)
-  searchDebounce = setTimeout(() => {
-    debouncedQuery.value = searchQuery.value
-    runSearch()
-  }, 300)
-}
+// ── Data fetching ──────────────────────────────────────────────────────────
+// URL and params switch based on mode. /api/search returns SearchResultItem[]
+// (with similarity); /api/words returns WordListItem[] (paginated).
+const fetchUrl = computed(() => searchMode.value ? '/api/search' : '/api/words')
 
-function runSearch() {
-  page.value = 1
-  allWords.value = []
-  refresh()
-}
-
-// ── Data fetching (SSR-compatible via useFetch) ────────────────────────────
-const params = computed(() => ({
-  page: page.value,
-  size: pageSize,
-  ...(debouncedQuery.value.trim() ? { q: debouncedQuery.value.trim() } : {}),
-  ...(filters.pos ? { pos: filters.pos } : {}),
-  ...(filters.dialect ? { dialect: filters.dialect } : {}),
-}))
-
-const { data, pending, error, refresh } = await useFetch('/api/words', {
-  params,
-  watch: false, // we control refresh manually
+const fetchParams = computed(() => {
+  if (searchMode.value) {
+    return { q: debouncedQuery.value.trim(), limit: SEARCH_LIMIT }
+  }
+  return {
+    page: page.value,
+    size: pageSize,
+    ...(filters.pos ? { pos: filters.pos } : {}),
+    ...(filters.dialect ? { dialect: filters.dialect } : {}),
+  }
 })
 
-const words = computed<WordListItem[]>(() => {
-  const items = data.value?.items || []
-  // For page 1, replace; for subsequent pages, append
+const { data, pending, error, refresh } = await useFetch<
+  | { items: WordListItem[]; total: number; page: number; size: number; has_next: boolean }
+  | { items: SearchResultItem[]; total: number; query: string }
+>(fetchUrl, {
+  params: fetchParams,
+  watch: false, // we control refresh manually (debounced)
+})
+
+// Normalised results — handles both response shapes
+const words = computed<Array<WordListItem | SearchResultItem>>(() => {
+  const items = (data.value?.items || []) as Array<WordListItem | SearchResultItem>
+  // Browse mode: page 1 replaces, page 2+ appends. Search mode: single fetch, no pagination.
+  if (searchMode.value) return items
   return page.value === 1 ? items : [...allWords.value, ...items]
 })
 
 const total = computed(() => data.value?.total || 0)
-const hasMore = computed(() => data.value?.has_next || false)
+const hasMore = computed(() =>
+  !searchMode.value && (data.value as { has_next?: boolean } | undefined)?.has_next === true,
+)
 
-// ── Load more ──────────────────────────────────────────────────────────────
+// ── Search triggers ────────────────────────────────────────────────────────
+// SearchBar v-model updates searchQuery immediately. We debounce the
+// debouncedQuery ref so the actual fetch waits 250ms (matches SearchBar's own
+// dropdown debounce — feels consistent).
+let searchDebounce: ReturnType<typeof setTimeout> | null = null
+
+// Watch searchQuery (which SearchBar updates) → debounce → run search
+watch(searchQuery, (val) => {
+  if (searchDebounce) clearTimeout(searchDebounce)
+  searchDebounce = setTimeout(() => {
+    debouncedQuery.value = val
+    runSearch()
+  }, 250)
+})
+
+function runSearch(q?: string) {
+  // SearchBar emits 'submit' with the query string — update both refs
+  // synchronously so the URL/mode switch happens immediately (not after
+  // the 250ms typing debounce). Also cancel any pending debounce so we
+  // don't double-fetch.
+  if (typeof q === 'string') {
+    if (q !== searchQuery.value) searchQuery.value = q
+    debouncedQuery.value = q
+    if (searchDebounce) {
+      clearTimeout(searchDebounce)
+      searchDebounce = null
+    }
+  }
+  page.value = 1
+  allWords.value = []
+  if (debouncedQuery.value.trim()) add(debouncedQuery.value.trim())
+  refresh()
+}
+
+function applyRecent(q: string) {
+  searchQuery.value = q
+  debouncedQuery.value = q
+  runSearch()
+}
+
+function goToWord(item: SearchResultItem) {
+  // User selected a dropdown result — navigate straight to word detail.
+  router.push(`/words/${item.slug}`)
+}
+
+// ── Load more — browse mode only ───────────────────────────────────────────
 async function loadMore() {
+  if (searchMode.value) return
   loadingMore.value = true
   // Save current items before fetching next page
   allWords.value = words.value
@@ -236,7 +315,9 @@ async function loadMore() {
 function clearSearch() {
   searchQuery.value = ''
   debouncedQuery.value = ''
-  runSearch()
+  page.value = 1
+  allWords.value = []
+  refresh()
 }
 
 function clearFilters() {
@@ -245,10 +326,12 @@ function clearFilters() {
   runSearch()
 }
 
-// ── Refetch when filters change ────────────────────────────────────────────
+// ── Refetch when filters change (browse mode) ──────────────────────────────
 watch(
   () => [filters.pos, filters.dialect],
-  () => runSearch(),
+  () => {
+    if (!searchMode.value) runSearch()
+  },
 )
 
 // ── Update URL when search changes (shareable links) ───────────────────────
@@ -261,4 +344,11 @@ watch(
     router.replace({ path: '/search', query })
   },
 )
+
+// On mount, if there's an initial q from the URL, fire the first search
+onMounted(() => {
+  if (debouncedQuery.value.trim()) {
+    refresh()
+  }
+})
 </script>

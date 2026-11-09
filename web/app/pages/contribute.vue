@@ -78,6 +78,11 @@
           <div v-if="useSuggestPath" class="md:col-span-2"><label class="field-label">Notes for reviewers <span class="text-stone-light font-normal">(optional)</span></label><textarea v-model="rationale" rows="3" class="field" placeholder="Why is this word needed?" :disabled="submitting"></textarea></div>
         </div>
 
+        <!-- Examples section -->
+        <div class="mt-8 border-t border-cream-200 pt-6">
+          <ExampleEditor v-model="examples" :disabled="submitting" :max="5" />
+        </div>
+
         <div v-if="!isReviewer" class="mt-6 md:mt-8 bg-cream-100 border border-cream-200 rounded-lg p-4 flex gap-3 items-start max-w-3xl">
           <svg class="w-5 h-5 text-ochre mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           <p class="text-xs text-ink-soft leading-relaxed">
@@ -135,9 +140,12 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import type { SuggestionListItem } from '~/types'
+import type { ExampleInput } from '~/utils/words'
 
 const { isAuthenticated, isReviewer } = useAuth()
+const toast = useToast()
 const isAuthed = computed(() => isAuthenticated.value)
 
 const activeTab = ref('suggest')
@@ -167,6 +175,7 @@ const useSuggestPath = computed(() => {
 // Suggest form
 const form = reactive({ headword: '', dialect: '', part_of_speech: '', noun_class: '', swahili_translation: '', english_translation: '', literal_translation: '' })
 const rationale = ref('')
+const examples = ref<ExampleInput[]>([])
 const honeypot = ref('')
 const submitting = ref(false)
 const formError = ref('')
@@ -174,13 +183,63 @@ const success = ref(false)
 const successId = ref<string | null>(null)
 const duplicateWord = ref<{ id: string; headword: string } | null>(null)
 
+const submitted = ref(false)
+const isDirty = computed(() =>
+  !submitted.value &&
+  (Object.values(form).some(v => (typeof v === 'string' ? v.trim() !== '' : Boolean(v))) ||
+   examples.value.some(ex => ex.taita_text.trim() !== '')),
+)
+
+onBeforeRouteLeave(() => {
+  if (isDirty.value && !window.confirm('You have unsaved changes. Leave anyway?')) {
+    return false
+  }
+})
+
+if (import.meta.client) {
+  window.addEventListener('beforeunload', (e) => {
+    if (isDirty.value) e.preventDefault()
+  })
+}
+
 async function onSubmit() {
   formError.value = ''; success.value = false; duplicateWord.value = null
   if (!form.headword.trim()) { formError.value = 'Please enter the Taita word.'; return }
   // Swahili translation is optional — enter * if unsure. Reviewers handle validation.
+
+  // Honeypot tripped — silently "succeed" without sending or validating further.
+  // Must run BEFORE any real validation so bots don't see different errors than
+  // humans would (which would reveal the honeypot's purpose).
+  if (honeypot.value) {
+    success.value = true
+    successId.value = 'fake-id'
+    return
+  }
+
+  // Normalize examples: drop rows with no taita_text, null out empty optionals.
+  // The backend requires taita_text on every example sent; rows without it are
+  // user-abandoned drafts (started typing then changed their mind).
+  const cleanExamples = examples.value
+    .map(ex => ({
+      taita_text: ex.taita_text.trim(),
+      swahili_text: ex.swahili_text?.trim() || null,
+      english_text: ex.english_text?.trim() || null,
+      source_ref: ex.source_ref?.trim() || null,
+    }))
+    .filter(ex => ex.taita_text.length > 0)
+  const examplesPayload = cleanExamples.length > 0 ? cleanExamples : null
+
+  // Swahili-required validation (only if there are any examples)
+  if (cleanExamples.length > 0) {
+    const missingSw = cleanExamples.findIndex(ex => !ex.swahili_text)
+    if (missingSw !== -1) {
+      formError.value = `Example ${missingSw + 1} is missing its Swahili translation. Please add one (required so learners can match the Taita to a known language).`
+      return
+    }
+  }
+
   submitting.value = true
   try {
-    if (honeypot.value) { success.value = true; successId.value = 'fake-id'; return }
     if (useSuggestPath.value) {
       const result = await createSuggestion({
         target_type: 'new_word',
@@ -189,21 +248,28 @@ async function onSubmit() {
           noun_class: form.noun_class || null, dialect: form.dialect || null,
           literal_translation: form.literal_translation || null,
           swahili_translation: form.swahili_translation.trim(), english_translation: form.english_translation.trim() || null,
+          examples: examplesPayload,
         },
         rationale: rationale.value.trim() || null,
       })
       success.value = true; successId.value = (result as { id: string }).id
+      toast.success('Asante! Your suggestion is in the review queue')
+      submitted.value = true
     } else {
       const result = await createWord({
         headword: form.headword.trim(), part_of_speech: form.part_of_speech || null,
         noun_class: form.noun_class || null, dialect: form.dialect || null,
         literal_translation: form.literal_translation || null,
         swahili_translation: form.swahili_translation.trim(), english_translation: form.english_translation.trim() || null,
+        examples: examplesPayload,
       })
       success.value = true; successId.value = result.id
+      toast.success('Word added to the dictionary')
+      submitted.value = true
     }
     Object.assign(form, { headword: '', dialect: '', part_of_speech: '', noun_class: '', swahili_translation: '', english_translation: '', literal_translation: '' })
     rationale.value = ''
+    examples.value = []
   } catch (err: unknown) {
     const e = err as { response?: { status?: number; _data?: { detail?: unknown; existing_word_id?: string; existing_headword?: string; message?: string } }; message?: string }
     if (e.response?.status === 429) { formError.value = 'Rate limit exceeded. Try again later or sign in.' }

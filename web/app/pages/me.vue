@@ -192,6 +192,7 @@ definePageMeta({
 
 const { user, displayName, isAdmin, isReviewer, logout } = useAuth()
 const session = useUserSession()
+const toast = useToast()
 const sessionPending = computed(() => !session.ready.value)
 
 // ── Stats ───────────────────────────────────────────────────────────────────
@@ -228,8 +229,10 @@ async function saveName() {
     await updateMe(nameEdit.value.trim() || null)
     // Refresh the session to get the updated user
     await session.fetch()
+    toast.success('Profile updated')
   } catch (err) {
     console.error('Failed to update name:', err)
+    toast.error('Could not update profile')
   } finally {
     savingName.value = false
     editingName.value = false
@@ -274,6 +277,7 @@ async function savePassword() {
     pwSuccess.value = true
     pwForm.current = ''
     pwForm.new = ''
+    toast.success('Password changed')
   } catch (err: unknown) {
     const e = err as { response?: { _data?: { detail?: string } } }
     pwError.value = (e.response?._data?.detail as string) || 'Failed to change password.'

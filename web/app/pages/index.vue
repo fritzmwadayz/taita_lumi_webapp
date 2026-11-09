@@ -3,38 +3,26 @@
     <!-- Hero: 2-column -->
     <section class="px-4 md:px-12 py-16 grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-12 items-center">
       <div class="col-span-7">
-        <p class="text-xs font-semibold tracking-widest uppercase text-ochre mb-3">
+        <p class="text-xs font-semibold tracking-widest uppercase text-ochre mb-3 anim-fade-up">
           Kamusi ya Kidawida
         </p>
-        <h1 class="font-serif text-3xl md:text-5xl text-forest-dark leading-tight mb-4">
+        <h1 class="font-serif text-3xl md:text-5xl text-forest-dark leading-tight mb-4 anim-fade-up anim-delay-1">
           A living dictionary of the Taita language.
         </h1>
-        <p class="text-base text-stone leading-relaxed mb-8 max-w-lg">
+        <p class="text-base text-stone leading-relaxed mb-8 max-w-lg anim-fade-up anim-delay-2">
           Built by and for speakers of Dawida, Sagala, and Kasighau. Browse,
           search, and contribute — Taita to Swahili and English.
         </p>
 
-        <!-- Search bar -->
-        <div
-          class="flex items-center gap-3 bg-cream-50 border border-cream-300 rounded-xl px-5 py-4 max-w-xl"
-        >
-          <svg class="w-5 h-5 text-stone" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M21 21l-4.35-4.35M11 18a7 7 0 100-14 7 7 0 000 14z"
-            />
-          </svg>
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="Tafuta neno... / Search a word..."
-            class="flex-1 bg-transparent text-base text-ink placeholder-stone-light outline-none"
-            @keyup.enter="goToSearch"
-          />
-          <kbd class="text-[10px] font-mono text-stone-light bg-cream-100 px-1.5 py-0.5 rounded border border-cream-200">↵</kbd>
-        </div>
+        <!-- Search bar — uses /api/search for autocomplete dropdown -->
+        <SearchBar
+          v-model="searchQuery"
+          size="lg"
+          wrapper-class="max-w-xl anim-fade-up anim-delay-3"
+          placeholder="Tafuta neno... / Search a word..."
+          @submit="goToSearch"
+          @select="goToWord"
+        />
 
         <div class="flex flex-wrap gap-2 mt-4">
           <button
@@ -58,25 +46,37 @@
         </div>
         <div v-if="wordOfDay" class="bg-forest text-cream rounded-2xl p-6 relative overflow-hidden tri-pattern">
           <div class="relative">
-            <div class="flex items-baseline gap-3 mb-3">
-              <h4 class="font-serif text-4xl text-cream font-semibold">{{ wordOfDay.headword }}</h4>
-              <PosBadge v-if="wordOfDay.part_of_speech" :pos="wordOfDay.part_of_speech" />
+            <!-- Top row: word + POS (left) + audio placeholder (right) -->
+            <div class="flex items-baseline justify-between mb-3">
+              <div class="flex items-baseline gap-3">
+                <h4 class="font-serif text-4xl text-cream font-semibold">{{ wordOfDay.headword }}</h4>
+                <PosBadge v-if="wordOfDay.part_of_speech" :pos="wordOfDay.part_of_speech" />
+              </div>
+              <AudioPlaceholder tone="onDark" size="md" />
             </div>
-            <p v-if="wordOfDay.swahili_translation" class="text-base text-cream/90 font-medium mb-1">
-              {{ wordOfDay.swahili_translation }}
-            </p>
-            <p v-if="wordOfDay.english_translation" class="text-sm text-cream/70 mb-4">
-              {{ wordOfDay.english_translation }}
-            </p>
-            <NuxtLink
-              :to="`/words/${wordOfDay.slug}`"
-              class="focus-ring inline-flex items-center gap-1 text-xs font-semibold text-ochre-light hover:text-cream transition"
-            >
-              View full entry
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-              </svg>
-            </NuxtLink>
+            <!-- Translations with labels -->
+            <div class="space-y-1 mb-6">
+              <p v-if="wordOfDay.swahili_translation" class="text-base text-cream/90 font-medium">
+                <span class="text-[10px] font-bold text-ochre-light mr-2 uppercase tracking-wider">SW</span>
+                {{ wordOfDay.swahili_translation }}
+              </p>
+              <p v-if="wordOfDay.english_translation" class="text-sm text-cream/70">
+                <span class="text-[10px] font-bold text-ochre-light mr-2 uppercase tracking-wider">EN</span>
+                {{ wordOfDay.english_translation }}
+              </p>
+            </div>
+            <!-- View full entry — bottom right -->
+            <div class="flex justify-end">
+              <NuxtLink
+                :to="`/words/${wordOfDay.slug}`"
+                class="focus-ring inline-flex items-center gap-1 text-xs font-semibold text-ochre-light hover:text-cream transition"
+              >
+                View full entry
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
+              </NuxtLink>
+            </div>
           </div>
         </div>
         <div v-else class="bg-cream-100 border border-cream-200 rounded-2xl p-6 text-sm text-stone">
@@ -145,20 +145,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { WordListItem } from '~/types'
+import { computed, ref } from 'vue'
+import type { SearchResultItem, WordListResponse, WordListItem } from '~/types'
 
 // ── Search bar ─────────────────────────────────────────────────────────────
 const searchQuery = ref('')
 const quickFilters = ['All', 'Nouns', 'Verbs', 'Phrases']
 const router = useRouter()
 
-function goToSearch() {
-  if (searchQuery.value.trim()) {
-    router.push({ path: '/search', query: { q: searchQuery.value } })
+function goToSearch(q?: string) {
+  // SearchBar passes the query string; bare Enter on the old input used the ref.
+  const query = (typeof q === 'string' ? q : searchQuery.value).trim()
+  if (query) {
+    router.push({ path: '/search', query: { q: query } })
   } else {
     router.push('/search')
   }
+}
+
+function goToWord(item: SearchResultItem) {
+  // User clicked or pressed Enter on a dropdown result — go straight to the word.
+  router.push(`/words/${item.slug}`)
 }
 
 function goToSearchWithFilter(filter: string) {
@@ -177,7 +184,7 @@ const todayLabel = computed(() =>
 )
 
 // ── Data: ONE fetch for recent words + word-of-the-day + total count ──────
-const { data: wordsData, pending, error } = await useFetch('/api/words', {
+const { data: wordsData, pending, error } = await useFetch<WordListResponse>('/api/words', {
   params: { size: 20, include_relations: false },
 })
 
@@ -191,6 +198,6 @@ const wordOfDay = computed<WordListItem | null>(() => {
   const dayOfYear = Math.floor(
     (Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000,
   )
-  return items[dayOfYear % items.length]
+  return items[dayOfYear % items.length] ?? null
 })
 </script>
