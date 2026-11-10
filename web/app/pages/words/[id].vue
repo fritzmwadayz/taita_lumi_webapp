@@ -27,51 +27,14 @@
       <NuxtLink to="/search" class="focus-ring btn btn-primary btn-md">Back to search</NuxtLink>
     </div>
 
-    <!-- ═════════════════════════════════════════════════════════════════ -->
-    <!-- CONCEPT C — SCROLL STRIP                                          -->
-    <!-- Inline action cluster in the header (scrolls with content) +      -->
-    <!-- a slim sticky strip that slides down from the top of the viewport  -->
-    <!-- when the user scrolls past the hero. The strip hides again when    -->
-    <!-- the hero comes back into view. No mobile bottom bar.               -->
-    <!-- ═════════════════════════════════════════════════════════════════ -->
+    <!-- Word detail — inline action cluster in the header scrolls with content. -->
     <div v-else class="max-w-[820px] mx-auto px-6 sm:px-8 pb-16">
-
-      <!-- ─── Scroll strip (fixed at top, appears after hero scrolls away) ─── -->
-      <!-- Always present in the DOM; translated off-screen when the hero is
-           visible. pointer-events: none when hidden so it never blocks clicks. -->
-      <div
-        class="scroll-strip fixed top-[57px] left-0 right-0 z-30 bg-cream-50/95 backdrop-blur border-b border-cream-200 shadow-strip"
-        :class="{ 'scroll-strip--hidden': !stripVisible }"
-        :aria-hidden="!stripVisible"
-      >
-        <div class="max-w-[820px] mx-auto px-6 sm:px-8">
-          <div class="max-w-[680px] mx-auto flex items-center justify-between py-2 gap-3">
-            <!-- Compact headword recap -->
-            <div class="flex items-baseline gap-2.5 min-w-0">
-              <span class="font-serif text-lg text-forest-dark font-semibold truncate">{{ word.headword }}</span>
-              <PosBadge v-if="word.part_of_speech" :pos="word.part_of_speech" />
-              <span v-if="swahiliTranslation" class="hidden sm:inline text-xs text-stone truncate">— {{ swahiliTranslation.text }}</span>
-            </div>
-            <!-- Compact actions -->
-            <div class="flex items-center gap-1 flex-shrink-0">
-              <AudioPlaceholder size="sm" tooltip="No audio yet" />
-              <span class="w-px h-4 bg-cream-200 mx-0.5"></span>
-              <ShareButtons
-                variant="bar"
-                :headword="word.headword"
-                :word-slug="word.slug"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
       <article class="max-w-[680px] mx-auto">
 
         <!-- ═══════════════════════════════════════════════════════════════ -->
         <!-- HEADER — word hero + inline action cluster                       -->
         <!-- ═══════════════════════════════════════════════════════════════ -->
-        <header ref="heroHeader" class="pt-6 pb-2">
+        <header class="pt-6 pb-2">
           <!-- Headword + reviewer actions -->
           <div class="flex items-baseline gap-4 mb-3">
             <h1 class="font-serif text-5xl sm:text-6xl text-forest-dark font-semibold tracking-tight">{{ word.headword }}</h1>
@@ -143,9 +106,7 @@
           </div>
           <p v-else class="text-sm text-stone-light italic mb-2">No translations yet.</p>
 
-          <!-- ─── Inline action cluster (Concept C — lives in the header) ─── -->
-          <!-- Audio + share icons inline; scrolls with the page. The strip  -->
-          <!-- above duplicates them when the user scrolls past this point.    -->
+          <!-- ─── Inline action cluster (audio + share icons, scrolls with page) ─── -->
           <div class="flex items-center gap-1 py-1.5 mt-1 border-t border-cream-100">
             <AudioPlaceholder size="sm" tooltip="No audio yet" />
             <span class="hidden sm:inline text-[10px] text-stone-light ml-1 mr-2">No audio yet</span>
@@ -474,7 +435,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import type { WordDetail } from '~/types'
 
 const route = useRoute()
@@ -519,57 +480,6 @@ const nextSenseOrderIndex = computed(() => {
   if (!senses || senses.length === 0) return 1
   return Math.max(...senses.map(s => s.order_index)) + 1
 })
-
-// ── Scroll strip: appears when the hero header scrolls out of view ───────
-// IntersectionObserver watches the hero header element. When it leaves the
-// top ~15% of the viewport, the strip slides down. When the hero scrolls
-// back into view (e.g., user scrolls up), the strip hides again.
-const heroHeader = ref<HTMLElement | null>(null)
-const stripVisible = ref(false)
-let stripObserver: IntersectionObserver | null = null
-
-function setupStripObserver() {
-  if (!heroHeader.value || typeof IntersectionObserver === 'undefined') return
-  teardownStripObserver()
-  // Negative bottom rootMargin shrinks the observation box to the top 15%
-  // of the viewport. The strip appears as soon as the hero leaves that band.
-  stripObserver = new IntersectionObserver(
-    ([entry]) => {
-      stripVisible.value = !entry.isIntersecting
-    },
-    { rootMargin: '0px 0px -85% 0px', threshold: 0 },
-  )
-  stripObserver.observe(heroHeader.value)
-}
-
-function teardownStripObserver() {
-  if (stripObserver) {
-    stripObserver.disconnect()
-    stripObserver = null
-  }
-}
-
-onMounted(() => {
-  // Wait for the DOM to settle (useFetch may have resolved between mount
-  // and the v-else branch rendering the header).
-  nextTick(() => setupStripObserver())
-})
-
-onBeforeUnmount(() => {
-  teardownStripObserver()
-})
-
-// Re-attach the observer whenever the loaded word changes (route param
-// changes), so the strip resets for the new entry.
-watch(
-  () => word.value?.id,
-  async () => {
-    teardownStripObserver()
-    stripVisible.value = false
-    await nextTick()
-    setupStripObserver()
-  },
-)
 
 // ── Sense edit form state ────────────────────────────────────────────────
 const editingSenseId = ref<string | null>(null)
@@ -811,22 +721,6 @@ function formatDate(iso: string): string {
 }
 .lang-sw { background: #E8F0EA; color: #1F4129; } /* forest tint / forest dark */
 .lang-en { background: #F5DDD3; color: #A8492B; } /* terracotta tint / terracotta dark */
-
-/* ─── Scroll strip — slide transition ─────────────────────────────────── */
-/* The strip is always in the DOM (so the IntersectionObserver has a stable
-   target to read). When `--hidden` is applied, it translates up and out of
-   view, and pointer-events are disabled so it never blocks clicks while
-   invisible. */
-.scroll-strip {
-  transition: transform 0.25s ease, opacity 0.2s ease;
-  transform: translateY(0);
-  opacity: 1;
-}
-.scroll-strip--hidden {
-  transform: translateY(-100%);
-  opacity: 0;
-  pointer-events: none;
-}
 
 /* ─── Expand transition for the inline forms ───────────────────────────── */
 .expand-enter-active,

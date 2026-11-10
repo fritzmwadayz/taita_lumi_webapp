@@ -113,6 +113,18 @@
               :disabled="loading"
             />
           </div>
+
+          <!-- Forgot password link — login tab only.
+               Signup creates a new account so the link is irrelevant there. -->
+          <div v-if="activeTab === 'login'" class="flex items-center justify-end -mt-1">
+            <NuxtLink
+              to="/forgot-password"
+              class="focus-ring text-xs text-forest hover:underline rounded"
+            >
+              Forgot password?
+            </NuxtLink>
+          </div>
+
           <div v-if="activeTab === 'signup'">
             <label class="field-label">
               Display name <span class="text-stone-light font-normal">(optional)</span>

@@ -71,9 +71,50 @@ case "$MODE" in
     DATABASE_URL="${LOCAL_DATABASE_URL:-$LOCAL_DB_DEFAULT}"
     if [[ $INIT_DB -eq 1 ]]; then
       echo "→ Creating lumi_test database (if it doesn't exist)..."
-      # psql needs a sync URL — strip the +asyncpg driver suffix
+
+      # ── Preflight: is Postgres running at all? ───────────────
+      # psql will hang or fail with a confusing "connection refused"
+      # otherwise; give the user a clear actionable message.
+      if ! command -v psql >/dev/null 2>&1; then
+        echo "" >&2
+        echo "ERROR: psql not found. Install PostgreSQL first:" >&2
+        echo "  Fedora:    sudo dnf install postgresql postgresql-server" >&2
+        echo "  Ubuntu:    sudo apt install postgresql" >&2
+        echo "  macOS:     brew install postgresql@16 && brew services start postgresql@16" >&2
+        exit 2
+      fi
+
+      # Probe with a 3-second timeout so we don't hang.
+      # The ADMIN_URL is built below; do a quick reachability check first
+      # against the parsed host:port.
+      ADMIN_URL_PROBE="${DATABASE_URL/postgresql+asyncpg/postgresql}"
+      ADMIN_URL_PROBE="${ADMIN_URL_PROBE%/*}/postgres"  # connect to 'postgres' DB
+
+      if ! timeout 3 psql "$ADMIN_URL_PROBE" -c '\q' >/dev/null 2>&1; then
+        echo "" >&2
+        echo "ERROR: could not connect to PostgreSQL at: $ADMIN_URL_PROBE" >&2
+        echo "" >&2
+        echo "Common causes on a fresh install (Fedora/RHEL):" >&2
+        echo "" >&2
+        echo "  1. The server service isn't running." >&2
+        echo "     Check with:    systemctl status postgresql" >&2
+        echo "     Start with:    sudo systemctl enable --now postgresql" >&2
+        echo "" >&2
+        echo "  2. The 'postgres' role has no password set (Fedora default)." >&2
+        echo "     Set one with:  sudo -u postgres psql -c \"ALTER USER postgres WITH PASSWORD 'postgres';\"" >&2
+        echo "     (or override LOCAL_DATABASE_URL with a user that already has a password)" >&2
+        echo "" >&2
+        echo "  3. Postgres is on a non-default host/port/user." >&2
+        echo "     Override with: LOCAL_DATABASE_URL='postgresql+asyncpg://USER:PASS@HOST:PORT/lumi_test' \\" >&2
+        echo "                        ./dev_server.sh --local --init" >&2
+        echo "" >&2
+        echo "Hint: to verify the server is up, run:" >&2
+        echo "  sudo -u postgres psql -c '\l'   # lists databases — should show postgres, template0, template1" >&2
+        exit 2
+      fi
+
+      # ── Build the admin URL (connects to the maintenance 'postgres' DB) ──
       ADMIN_URL="${DATABASE_URL/postgresql+asyncpg/postgresql}"
-      # Detach the database name so we connect to the maintenance DB (postgres)
       DB_NAME="${ADMIN_URL##*/}"
       ADMIN_URL="${ADMIN_URL%/*}/postgres"
 
