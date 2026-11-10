@@ -86,6 +86,40 @@ def create_refresh_token(
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
+# ── Password reset token ────────────────────────────────────────
+
+
+# Password reset tokens expire after 1 hour (per the backend API contract).
+PASSWORD_RESET_TOKEN_EXPIRE_SECONDS = 3600
+
+
+def create_password_reset_token(
+    user_id: UUID,
+    email: str,
+    expires_delta: timedelta | None = None,
+) -> str:
+    """Create a single-use password reset token.
+
+    The token carries the user ID and the user's email at issue time, so
+    the confirm endpoint can invalidate it if the email has since changed
+    (e.g. user changed email after requesting a reset).
+
+    Signed with the same JWT_SECRET as access/refresh tokens, HS256.
+    Expiry: 1 hour (PASSWORD_RESET_TOKEN_EXPIRE_SECONDS).
+    """
+    expire = datetime.now(timezone.utc) + (
+        expires_delta or timedelta(seconds=PASSWORD_RESET_TOKEN_EXPIRE_SECONDS)
+    )
+    payload: dict[str, Any] = {
+        "sub": str(user_id),
+        "email": email,
+        "type": "reset",
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
 # ── JWT verification ──────────────────────────────────────────
 
 

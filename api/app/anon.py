@@ -31,6 +31,7 @@ RATE_LIMIT_WINDOW = 3600  # 1 hour in seconds
 RATE_LIMIT_PER_ANON_SESSION = 5  # max 5 suggestions per hour per anon session
 RATE_LIMIT_PER_ANON_IP = 10  # max 10 suggestions per hour per IP
 RATE_LIMIT_PER_REGISTERED_USER = 15  # max 15 suggestions per hour per registered non-reviewer
+RATE_LIMIT_PER_PASSWORD_RESET_EMAIL = 3  # max 3 password-reset requests per hour per email
 
 # ── In-memory rate limit store ────────────────────────────────
 # Keyed by session_id (UUID) or user_id (UUID) or IP hash
@@ -38,6 +39,7 @@ RATE_LIMIT_PER_REGISTERED_USER = 15  # max 15 suggestions per hour per registere
 _session_attempts: dict[UUID, list[float]] = defaultdict(list)
 _ip_attempts: dict[str, list[float]] = defaultdict(list)
 _user_attempts: dict[UUID, list[float]] = defaultdict(list)
+_password_reset_attempts: dict[str, list[float]] = defaultdict(list)
 
 
 def _prune_old(attempts: list[float], window: int = RATE_LIMIT_WINDOW) -> list[float]:
@@ -98,6 +100,43 @@ def check_registered_user_rate_limit(user_id: UUID) -> None:
         )
 
     _user_attempts[user_id].append(now)
+
+
+def check_password_reset_rate_limit(email: str) -> None:
+    """Check if a password-reset request has exceeded the per-email rate limit.
+
+    Keyed by the (lowercased) email address — same email can request at most
+    `RATE_LIMIT_PER_PASSWORD_RESET_EMAIL` (3) resets per hour. This prevents
+    abuse (someone using the endpoint to spam a victim's inbox) while still
+    allowing the endpoint to always return 200.
+
+    Raises 429 if exceeded.
+    """
+    now = time.time()
+    key = (email or "").lower().strip()
+
+    _password_reset_attempts[key] = _prune_old(_password_reset_attempts[key])
+    if len(_password_reset_attempts[key]) >= RATE_LIMIT_PER_PASSWORD_RESET_EMAIL:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"Rate limit exceeded: max {RATE_LIMIT_PER_PASSWORD_RESET_EMAIL} "
+                "password reset requests per hour for this email."
+            ),
+            headers={"Retry-After": str(RATE_LIMIT_WINDOW)},
+        )
+
+    _password_reset_attempts[key].append(now)
+
+
+def reset_password_reset_rate_limit(email: str) -> None:
+    """Clear the per-email rate-limit window. Test helper.
+
+    Not used in production code, but useful for tests that exercise the
+    429 path and need a clean slate between cases.
+    """
+    key = (email or "").lower().strip()
+    _password_reset_attempts.pop(key, None)
 
 
 def _hash_cookie(cookie_value: str) -> str:

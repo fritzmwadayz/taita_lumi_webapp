@@ -25,6 +25,8 @@ Audit log shape mapping (DB → API):
     relation.create
     suggestion.accept, suggestion.reject
     user.role.change, user.block, user.unblock
+    user.password_reset_request, user.password_reset
+    user.email_change, user.delete
 """
 
 from __future__ import annotations
@@ -865,12 +867,21 @@ async def get_audit_log(
     if entity_id:
         stmt = stmt.where(EditLog.entity_id == entity_id)
     if action:
-        # Accept both bare and dotted forms: 'word.create' or 'create'
+        # Accept both bare and dotted forms:
+        #   'word.create'  → stored as 'create' on words (bare verb)
+        #   'user.password_reset_request' → stored as 'user.password_reset_request'
+        #                                 (already-dotted form, written by auth routes)
+        #
+        # The dotted form may correspond to either:
+        #   - a bare-verb row in the DB (e.g. 'word.create' was stored as 'create')
+        #   - an already-dotted row (e.g. 'user.password_reset_request' is stored
+        #     verbatim because it doesn't fit the bare-verb convention)
+        # We OR the two so the filter matches either way.
         if "." in action:
-            # Dotted — strip the entity prefix and match the bare verb
-            # (the dotted form is computed by _map_action at read time)
             bare = action.split(".", 1)[1]
-            stmt = stmt.where(EditLog.action == bare)
+            stmt = stmt.where(
+                (EditLog.action == action) | (EditLog.action == bare)
+            )
         else:
             stmt = stmt.where(EditLog.action == action)
 

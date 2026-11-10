@@ -26,6 +26,29 @@ class Settings(BaseSettings):
     google_oauth_client_id: str = ""
     google_oauth_client_secret: str = ""
 
+    # ── Email (SMTP) ───────────────────────────────────────────
+    # When SMTP_HOST is empty, emails are logged to stdout instead of sent
+    # (useful for local development without an SMTP server).
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "noreply@localhost"
+    smtp_use_tls: bool = True
+
+    # ── Email log file (dev-mode capture) ───────────────────────
+    # If set (and SMTP_HOST is empty), every email sent in dev mode is also
+    # appended to this file as a JSON line:
+    #   {"to": "...", "subject": "...", "body": "...", "html": "...", "ts": ...}
+    # Lets test scripts capture real reset tokens / verification codes without
+    # SMTP — the same `send_email()` code path runs, just with a file sink.
+    # Leave empty to disable (default — emails go to stdout only).
+    email_log_file: str = ""
+
+    # ── Frontend URL ────────────────────────────────────────────
+    # Used to build absolute links in emails (e.g. password reset).
+    frontend_url: str = "http://localhost:3000"
+
     # ── CORS ───────────────────────────────────────────────────
     cors_origins: str = "http://localhost:5173"
 

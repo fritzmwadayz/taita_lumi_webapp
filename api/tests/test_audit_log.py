@@ -367,3 +367,76 @@ async def test_audit_log_filter_by_entity_type(client_admin, mock_db):
 
     response = await client_admin.get("/api/admin/audit-log?entity_type=word")
     assert response.status_code == 200
+
+
+# ── Filter behavior for already-dotted actions (password reset, email change, etc.) ──
+
+
+@pytest.mark.asyncio
+async def test_audit_log_filter_by_already_dotted_action_returns_rows(client_admin, mock_db):
+    """Filtering by an already-dotted action (e.g. 'user.password_reset_request')
+    returns rows whose `action` column matches that dotted form verbatim.
+
+    The new auth endpoints (password reset, email change, account delete) write
+    already-dotted actions to the DB. The audit-log filter must OR the dotted
+    form with the bare-verb form so both kinds of rows are findable.
+    """
+    # A row that was written by the password-reset endpoint.
+    entry = make_mock_edit_log(
+        action="user.password_reset_request",
+        entity_type="user",
+        entity_id=uuid.uuid4(),
+        actor_user_id=uuid.uuid4(),
+        after={"email": "alice@example.com"},
+    )
+
+    mock_db.scalar = AsyncMock(return_value=1)
+    mock_db.execute = AsyncMock(
+        side_effect=[
+            MockResult(rows=[entry]),
+            MockResult(rows=[]),  # actor lookup (none — actor_id not in DB mock)
+        ]
+    )
+
+    response = await client_admin.get(
+        "/api/admin/audit-log?action=user.password_reset_request"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+    # The action passes through unchanged (already-dotted).
+    assert data["items"][0]["action"] == "user.password_reset_request"
+
+
+@pytest.mark.asyncio
+async def test_audit_log_filter_by_dotted_user_action_still_matches_bare_verb_rows(
+    client_admin, mock_db
+):
+    """Regression: filtering by 'word.create' must still match rows where the
+    action column stores the bare verb 'create' (legacy behavior preserved).
+    """
+    # A row from a word creation: action column stores the bare verb 'create'.
+    entry = make_mock_edit_log(
+        action="create",
+        entity_type="word",
+        entity_id=uuid.uuid4(),
+        actor_user_id=uuid.uuid4(),
+        after={"headword": "mlima"},
+    )
+
+    mock_db.scalar = AsyncMock(return_value=1)
+    mock_db.execute = AsyncMock(
+        side_effect=[
+            MockResult(rows=[entry]),
+            MockResult(rows=[]),
+        ]
+    )
+
+    response = await client_admin.get("/api/admin/audit-log?action=word.create")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["action"] == "word.create"  # _map_action produces the dotted form

@@ -50,6 +50,66 @@ class GoogleOAuthRequest(BaseModel):
     id_token: str
 
 
+# ── Password reset ────────────────────────────────────────────────
+
+
+class PasswordResetRequest(BaseModel):
+    """Request a password reset link.
+
+    The endpoint always returns 200 (even if the email doesn't exist) to
+    prevent email enumeration. The rate limit is 3 requests per email per hour.
+    """
+
+    email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    """Set a new password using a reset token.
+
+    The token is the JWT issued by /password-reset/request, with type='reset'
+    and a 1-hour expiry. The new password must be at least 8 chars (same
+    constraint as registration).
+    """
+
+    token: str
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+# ── Profile management ────────────────────────────────────────────
+
+
+class ChangeEmailRequest(BaseModel):
+    """Change the current user's email address.
+
+    Requires the current password (verified server-side). The new email
+    is lowercased before storage and uniqueness-checked against existing users.
+    """
+
+    new_email: EmailStr
+    current_password: str
+
+
+class DeleteAccountRequest(BaseModel):
+    """Soft-delete (anonymize) the current user's account.
+
+    Requires the current password. Anonymizes personal data but keeps the
+    user's community contributions (suggestions, words) visible.
+    """
+
+    password: str
+
+
+class ConnectedAccountsResponse(BaseModel):
+    """Which auth methods are linked to the current user's account.
+
+    The frontend uses this to show "Connected with Google" badges and to
+    hide/show the password change form appropriately.
+    """
+
+    google: bool
+    has_password: bool
+
+
 # ═══════════════════════════════════════════════════════════════
 # Response schemas
 # ═══════════════════════════════════════════════════════════════
