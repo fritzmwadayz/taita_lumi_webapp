@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# dev_server.sh — launch the TaitaLumi backend in dev mode with email capture.
+# dev_server.sh — launch the Lumi backend in dev mode with email capture.
 #
 # Three modes, picked by flag:
 #

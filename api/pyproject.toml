@@ -1,7 +1,7 @@
 [project]
-name = "taitalumi-api"
+name = "Lumi-api"
 version = "0.1.0"
-description = "TaitaLumi Web — FastAPI backend for the Taita dictionary"
+description = "Lumi Web — FastAPI backend for the Taita dictionary"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 dependencies = [
@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-taitalumi-import = "app.cli.import_data:main"
+Lumi-import = "app.cli.import_data:main"
 
 [project.optional-dependencies]
 dev = [

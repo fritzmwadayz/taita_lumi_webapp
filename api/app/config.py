@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     )
 
     # ── Database ───────────────────────────────────────────────
-    database_url: str = "postgresql+asyncpg://localhost/taitalumi"
+    database_url: str = "postgresql+asyncpg://localhost/Lumi"
 
     # ── JWT ────────────────────────────────────────────────────
     jwt_secret: str = "change-me"

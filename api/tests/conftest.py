@@ -1,4 +1,4 @@
-"""Pytest fixtures for TaitaLumi API tests."""
+"""Pytest fixtures for Lumi API tests."""
 
 import pytest
 from httpx import ASGITransport, AsyncClient

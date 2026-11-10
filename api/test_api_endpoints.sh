@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# test_api_endpoints.sh — end-to-end smoke test for the TaitaLumi API
+# test_api_endpoints.sh — end-to-end smoke test for the Lumi API
 #
 # Walks a fresh user through every auth + profile endpoint via curl:
 #   1.  GET  /                                      (health)
@@ -210,7 +210,7 @@ sys.exit(0)
 }
 
 # ── Preflight checks ──────────────────────────────────────────
-printf '%sTaitaLumi API end-to-end smoke test%s\n' "$bold" "$reset"
+printf '%sLumi API end-to-end smoke test%s\n' "$bold" "$reset"
 printf '  base_url:   %s\n' "$BASE_URL"
 printf '  email:      %s\n' "$EMAIL"
 printf '  jwt_secret:  %s\n' "${JWT_SECRET:0:3}*** (only used for reset-token minting)"

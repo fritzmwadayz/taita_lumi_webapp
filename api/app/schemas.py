@@ -1,4 +1,4 @@
-"""Pydantic response schemas for the TaitaLumi API.
+"""Pydantic response schemas for the Lumi API.
 
 These define the shape of API responses, used for:
   - Auto-generated OpenAPI docs at /docs

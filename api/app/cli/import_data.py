@@ -1,4 +1,4 @@
-"""Import NDJSON export from taita-dictionary into the TaitaLumi web Postgres DB.
+"""Import NDJSON export from taita-dictionary into the Lumi web Postgres DB.
 
 Usage:
   python -m app.cli.import_data path/to/export.ndjson
@@ -53,7 +53,7 @@ from app.slugs import generate_unique_slug
 # Phase 6 will replace this with a real admin user lookup.
 # For now, the first import will fail if no admin user exists —
 # so we create a system admin user on first run if needed.
-SYSTEM_ADMIN_EMAIL = "system@taitalumi.local"
+SYSTEM_ADMIN_EMAIL = "system@Lumi.local"
 
 
 async def get_or_create_system_admin(session) -> uuid.UUID:

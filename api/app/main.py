@@ -19,9 +19,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="TaitaLumi API",
+    title="Lumi API",
     version="0.1.0",
-    description="Backend for the TaitaLumi dictionary — a public dictionary of the Taita language.",
+    description="Backend for the Lumi dictionary — a public dictionary of the Taita language.",
     lifespan=lifespan,
 )
 
@@ -47,7 +47,7 @@ app.include_router(admin.router, prefix="/api", tags=["admin"])
 async def root():
     """Root endpoint — basic API info."""
     return {
-        "name": "TaitaLumi API",
+        "name": "Lumi API",
         "version": "0.1.0",
         "docs": "/docs",
     }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# test_full_api.sh — end-to-end smoke test for EVERY TaitaLumi API endpoint.
+# test_full_api.sh — end-to-end smoke test for EVERY endpoint.
 #
 # Walks through the full lifecycle of an account, exercising the role-based
 # access control along the way:
@@ -199,7 +199,7 @@ print(jwt.encode(payload, sys.argv[3], algorithm="HS256"))
 }
 
 # ── Preflight ──────────────────────────────────────────────────
-printf '%sTaitaLumi API — full end-to-end smoke test%s\n' "$bold" "$reset"
+printf '%sLumi API — full end-to-end smoke test%s\n' "$bold" "$reset"
 printf '  base_url:        %s\n' "$BASE_URL"
 printf '  test user email: %s\n' "$EMAIL"
 printf '  jwt_secret:      %s*** (only used for reset-token fallback)\n' "${JWT_SECRET:0:3}"

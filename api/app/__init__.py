@@ -1,1 +1,1 @@
-# TaitaLumi API
+# Lumi API

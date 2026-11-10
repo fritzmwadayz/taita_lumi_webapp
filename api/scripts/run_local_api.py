@@ -1,4 +1,4 @@
-"""In-memory launcher for the TaitaLumi API — for local end-to-end testing
+"""In-memory launcher for the Lumi API — for local end-to-end testing
 of test_api_endpoints.sh without a real Postgres.
 
 It overrides get_db to use an in-memory store of users + edit_log entries,
@@ -215,7 +215,7 @@ def main() -> None:
     _password_reset_attempts.clear()
 
     print("=" * 60)
-    print("  TaitaLumi API — in-memory launcher (TEST HARNESS)")
+    print("  Lumi API — in-memory launcher (TEST HARNESS)")
     print("  No real DB; users stored in a Python dict.")
     print("  Hit http://localhost:8000/")
     print("=" * 60)

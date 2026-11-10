@@ -1,4 +1,4 @@
-"""Async Alembic environment for TaitaLumi API.
+"""Async Alembic environment for Lumi API.
 
 Reads DATABASE_URL from app.config (which reads from .env),
 runs migrations against the async engine.

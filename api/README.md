@@ -1,96 +1,78 @@
-# TaitaLumi API
+# Lumi API
 
-FastAPI backend for the TaitaLumi dictionary.
+FastAPI backend for the **Lumi** dictionary — a public, community-built
+dictionary of the Taita language.
 
-## Setup
+This is the `api/` subfolder of the larger Lumi monorepo. The sibling
+`web/` subfolder contains the Nuxt frontend; deployment instructions for both
+live at the repo root and (eventually) in a dedicated deployment guide.
 
-### 1. Create virtual environment
+## What's here
+
+- **FastAPI** app with async SQLAlchemy 2 + asyncpg + Postgres 14+
+- **JWT auth** (access + refresh) with role hierarchy: `user < reviewer < admin`
+- **Google OAuth** sign-in (ID token exchange)
+- **Password reset** via email + **email sending** (`aiosmtplib`, with a dev-mode log-file sink for testing without SMTP)
+- **Words, senses, translations, examples, variations, relationships** —
+  the word graph that makes up the dictionary
+- **Suggestions + votes** — community-driven corrections with auto-promotion
+  after a voting threshold
+- **Admin surface** — user role/block management, word hide/merge, audit log
+
+## Quickstart
 
 ```bash
-cd website/api
-python3 -m venv .venv
-source .venv/bin/activate
+# 1. Set up local Postgres (Fedora: see docs/getting-started.md for the full walkthrough)
+sudo systemctl enable --now postgresql
+sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'postgres';"
+
+# 2. Install backend deps (in a venv)
 pip install -e ".[dev]"
+
+# 3. Create the test DB + run migrations
+./dev_server.sh --local --init
+
+# 4. Start the backend
+./dev_server.sh --local
+# → Uvicorn running on http://0.0.0.0:8000
+
+# 5. In another terminal, run the full end-to-end test suite
+./test_full_api.sh
+# → 79 PASS, 0 FAIL
 ```
 
-### 2. Configure environment
+If any of those steps fail, **read [`docs/getting-started.md`](docs/getting-started.md)**
+— it covers the Fedora-specific gotchas (postgresql-setup --initdb, peer vs
+password auth, pg_hba.conf) and the admin-bootstrap workflow.
 
-```bash
-cp .env.example .env
-```
+## Documentation
 
-Edit `.env` and set `DATABASE_URL` to your Neon connection string.
-(Generate a JWT secret with: `python -c "import secrets; print(secrets.token_hex(32))"`)
+All long-form docs live in [`docs/`](docs/). The index is at
+[`docs/README.md`](docs/README.md) — start there.
 
-### 3. Run migrations
+| File | What's in it |
+|---|---|
+| [docs/getting-started.md](docs/getting-started.md) | Local setup walkthrough (Postgres, deps, migrations, first run) |
+| [docs/api-reference.md](docs/api-reference.md) | Every endpoint with examples and role requirements |
+| [docs/authentication.md](docs/authentication.md) | JWT model, roles, password reset, OAuth, account lifecycle |
+| [docs/architecture.md](docs/architecture.md) | Routes → deps → models → db; audit log; suggestion lifecycle |
+| [docs/testing.md](docs/testing.md) | The 3 test modes (unit / smoke / full lifecycle) + the dev_server launcher |
+| [docs/configuration.md](docs/configuration.md) | Every env var with defaults and what breaks if you get it wrong |
+| [docs/email.md](docs/email.md) | Dev-mode email capture + real SMTP setup (Gmail, SendGrid, etc.) |
+| [docs/deployment.md](docs/deployment.md) | Production deployment (stub — full deploy docs live elsewhere) |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Version history |
 
-```bash
-alembic upgrade head
-```
+## Stack
 
-This creates all 10 tables in your Postgres database:
-`users`, `anonymous_sessions`, `import_batches`, `words`, `glosses`,
-`examples`, `word_relations`, `suggestions`, `votes`, `edit_log`.
+- Python 3.11+
+- FastAPI 0.115+, Uvicorn
+- SQLAlchemy 2.0 (async) + asyncpg + Alembic for migrations
+- Pydantic v2 + pydantic-settings
+- python-jose (HS256 JWT) + passlib with bcrypt
+- aiosmtplib for email
+- google-auth for OAuth ID token verification
+- pytest + pytest-asyncio + httpx for tests
 
-### 4. Run the dev server
+## License
 
-```bash
-uvicorn app.main:app --reload --port 8000
-```
-
-API docs available at http://localhost:8000/docs
-
-### 5. Run tests
-
-```bash
-pytest
-```
-
-## Project structure
-
-```
-api/
-├── alembic/
-│   ├── env.py                  — async Alembic config
-│   └── versions/
-│       └── 0001_initial.py     — all 10 tables + pg_trgm extension
-├── app/
-│   ├── main.py                 — FastAPI app + CORS
-│   ├── config.py               — settings via pydantic-settings
-│   ├── db.py                   — async SQLAlchemy engine + session
-│   ├── models.py               — all 10 SQLAlchemy models
-│   ├── deps.py                 — shared dependencies (get_db, auth stubs)
-│   └── routes/
-│       └── health.py           — GET /api/health, GET /api/health/ready
-├── tests/
-│   ├── conftest.py             — pytest fixtures (async test client)
-│   └── test_health.py          — basic endpoint test
-├── pyproject.toml
-├── .env.example
-└── alembic.ini
-```
-
-## Schema overview
-
-| Table | Purpose |
-|-------|---------|
-| `users` | Account holders (contributors + admins) |
-| `anonymous_sessions` | Anon visitors for rate-limiting + spam control |
-| `import_batches` | Tracks each bulk import from lexicon.db |
-| `words` | Headwords — the primary unit |
-| `glosses` | Swahili + English translations (attach to words) |
-| `examples` | Usage examples with parallel text |
-| `word_relations` | Edges between words (plural, variant, etc.) |
-| `suggestions` | Proposals to add/correct words or related entities |
-| `votes` | Up/down votes on suggestions |
-| `edit_log` | Append-only audit trail |
-
-**Key design decision:** No `senses` table — glosses attach directly to words.
-Voting targets words, not senses. This keeps the model simple for v1.
-
-## Next steps (Phase 1)
-
-- Import script (NDJSON from lexicon.db → Postgres)
-- `GET /api/words` (paginated list with filters)
-- `GET /api/words/{id}` (full word detail)
-- `GET /api/search?q=` (pg_trgm fuzzy search)
+MIT — see the repo root for the full text.
