@@ -284,7 +284,49 @@ if [[ "$USE_HARNESS_ADMIN" == "1" ]]; then
   if [[ "$c" == "200" ]]; then
     ok "harness-admin is indeed an admin"
   else
-    fail "harness-admin is NOT an admin (got $c on /api/admin/stats) — set LUMI_HARNESS_FIRST_USER_ROLE=admin or use ADMIN_EMAIL/ADMIN_PASSWORD" "$b"
+    fail "harness-admin is NOT an admin (got $c on /api/admin/stats)" "$b"
+    printf '\n  %sNote:%s harness auto-admin only works against the in-memory launcher.\n' "$yellow" "$reset"
+    printf '  Against a real Postgres, the first registered user is role='"'"'user'"'"'.\n'
+    printf '  Trying to auto-promote via psql...\n\n'
+
+    # ── Try to auto-promote via psql ──────────────────────────
+    # The user needs to have local Postgres set up (which dev_server.sh --local
+    # requires anyway). We try `sudo -u postgres psql -d <db>` — if sudo prompts
+    # for a password, the user can type it (this is an interactive script).
+    DB_NAME="${LUMI_TEST_DB:-lumi_test}"
+    PSQL_CMD="UPDATE users SET role='admin' WHERE email='${ADMIN_EMAIL}';"
+    if sudo -u postgres psql -d "$DB_NAME" -tAc "$PSQL_CMD" >/dev/null 2>&1; then
+      ok "auto-promoted harness-admin via psql (db: $DB_NAME)"
+
+      # Re-login — the role is encoded in the JWT, so the existing token still
+      # has role='user'. We need a fresh login to get an admin-scoped token.
+      payload="{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PASSWORD}\"}"
+      r="$(api POST /api/auth/login "$payload")"; c="${r%%|*}"; b="${r#*|}"
+      if [[ "$c" == "200" ]]; then
+        ADMIN_TOKEN="$(json_get "$b" access_token)"
+        # Verify the new token has admin role
+        r="$(api GET /api/admin/stats "" "$ADMIN_TOKEN")"; c="${r%%|*}"
+        if [[ "$c" == "200" ]]; then
+          ok "harness-admin is now an admin (verified after re-login)"
+        else
+          fail "auto-promote: re-login worked but admin check still failed (got $c)"
+          ADMIN_TOKEN=""
+        fi
+      else
+        fail "auto-promote: re-login after promotion failed (got $c)"
+        ADMIN_TOKEN=""
+      fi
+    else
+      # Auto-promote failed — print clear instructions and clear ADMIN_TOKEN
+      # so the script's later logic skips admin paths cleanly.
+      printf '  %sAuto-promote failed.%s sudo/psql not available non-interactively,\n' "$red" "$reset"
+      printf '  or the DB name is wrong (default: lumi_test — override with LUMI_TEST_DB).\n\n'
+      printf '  %sTo fix this manually, run this in another terminal:%s\n' "$yellow" "$reset"
+      printf '    sudo -u postgres psql -d %s -c "UPDATE users SET role='"'"'admin'"'"' WHERE email='"'"'%s'"'"';"\n' "$DB_NAME" "$ADMIN_EMAIL"
+      printf '\n  Then re-run with: ADMIN_EMAIL='"'"'%s'"'"' ADMIN_PASSWORD='"'"'%s'"'"' ./test_full_api.sh\n\n' "$ADMIN_EMAIL" "$ADMIN_PASSWORD"
+      printf '  %sContinuing in ADMIN_BOOTSTRAP mode (skipping promote/demote/admin-only endpoints).%s\n' "$yellow" "$reset"
+      ADMIN_TOKEN=""
+    fi
   fi
 elif [[ -n "$ADMIN_EMAIL" ]]; then
   step "B.0a Login as existing admin"
@@ -292,6 +334,18 @@ elif [[ -n "$ADMIN_EMAIL" ]]; then
   r="$(api POST /api/auth/login "$payload")"; c="${r%%|*}"; b="${r#*|}"
   expect_status "POST /api/auth/login (admin)" "200" "$c" "$b"
   ADMIN_TOKEN="$(json_get "$b" access_token)"
+
+  # Verify the admin token actually has admin role
+  r="$(api GET /api/admin/stats "" "$ADMIN_TOKEN")"; c="${r%%|*}"; b="${r#*|}"
+  if [[ "$c" == "200" ]]; then
+    ok "admin token verified"
+  else
+    fail "ADMIN_EMAIL login succeeded but is not an admin (got $c on /api/admin/stats)" "$b"
+    printf '\n  %sThe admin you provided doesn'"'"'t have role='"'"'admin'"'"'.%s\n' "$yellow" "$reset"
+    printf '  Promote them via psql:\n'
+    printf '    sudo -u postgres psql -d lumi_test -c "UPDATE users SET role='"'"'admin'"'"' WHERE email='"'"'%s'"'"';"\n\n' "$ADMIN_EMAIL"
+    ADMIN_TOKEN=""
+  fi
 fi
 
 step "B.1 Register the test user"
