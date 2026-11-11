@@ -7,8 +7,7 @@
 # has the correct SEO meta tags, structured data, and is discoverable by
 # search engines. Also checks robots.txt, OG image, and sitemap integrity.
 #
-# Use this AFTER deploying to Vercel (or any host) to verify the full SEO
-# setup is working in production.
+# Used AFTER deployment to verify full SEO setup is working in production.
 #
 # Usage:
 #   ./seo-audit.sh https://lumi.vercel.app
