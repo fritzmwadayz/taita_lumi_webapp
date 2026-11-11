@@ -125,6 +125,11 @@
 import { computed, ref } from 'vue'
 import type { SuggestionListItem } from '~/types'
 
+// ── SEO ───────────────────────────────────────────────────────────────────
+// Suggestion pages are community process pages, not content landing pages.
+// Mark as noindex to keep search results focused on words.
+useSiteSeo({ noindex: true })
+
 const route = useRoute()
 const router = useRouter()
 const { isAuthenticated, isReviewer, user } = useAuth()

@@ -113,6 +113,9 @@ definePageMeta({
   middleware: 'admin',
 })
 
+// ── SEO ───────────────────────────────────────────────────────────────────
+useSiteSeo({ noindex: true })
+
 const { data, pending, refresh } = await useFetch<{ items: AdminUser[]; total: number }>('/api/admin/users')
 const users = computed(() => data.value?.items || [])
 const total = computed(() => data.value?.total || 0)

@@ -89,6 +89,9 @@ definePageMeta({
   middleware: 'admin',
 })
 
+// ── SEO ───────────────────────────────────────────────────────────────────
+useSiteSeo({ noindex: true })
+
 const page = ref(1)
 const pageSize = 20
 const actionFilter = ref('')

@@ -9,12 +9,12 @@
 
 ## 1. What Lumi is
 
-Lumi is a project developed to support the digitization of the **Taita language**.
-It is designed to be community centric and has Taita-to-Swahili and Taita-to-English translations. 
-Users can browse, search, suggest new words and edits, vote on suggestions, and (for reviewers/admins) curate the
+Lumi is a community dictionary of the **Taita language**, with Taita-to-Swahili
+and Taita-to-English translations. Users can browse, search, suggest new words
+and edits, vote on suggestions, and (for reviewers/admins) curate the
 dictionary directly.
 
-It has three parts:
+The product has three parts:
 
 | Part | Stack | Hosts |
 |---|---|---|
@@ -679,7 +679,7 @@ capture and feed them back in — section 10 of the script has a placeholder.
 ## 14. Directory structure
 
 ```
-web/
+lumi-frontend/
 ├── app/
 │   ├── app.vue                    # Root: NuxtLayout > NuxtPage
 │   ├── error.vue                  # Error page

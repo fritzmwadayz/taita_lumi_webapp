@@ -111,4 +111,10 @@
 <script setup lang="ts">
 // Ported from src/pages/Support.vue — mostly static content.
 // RouterLink → NuxtLink (auto-imported).
+
+// ── SEO ───────────────────────────────────────────────────────────────────
+useSiteSeo({
+  title: 'Support',
+  description: 'Support the Lumi Taita dictionary. Become a reviewer or contribute financially to help grow this free, open-source community resource.',
+})
 </script>

@@ -377,6 +377,9 @@ definePageMeta({
   middleware: 'reviewer',
 })
 
+// ── SEO ───────────────────────────────────────────────────────────────────
+useSiteSeo({ noindex: true })
+
 const { displayName } = useAuth()
 
 // ═══ OPEN QUEUE ═══

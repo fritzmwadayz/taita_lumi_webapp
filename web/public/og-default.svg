@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <!-- Background -->
+  <rect width="1200" height="630" fill="#FBF7F0"/>
+
+  <!-- Subtle triangle pattern (matching the Lumi .tri-pattern motif) -->
+  <g opacity="0.05" fill="none" stroke="#2D5A3D" stroke-width="0.6">
+    <path d="M0 630 L40 555 L80 630 Z"/>
+    <path d="M80 630 L120 555 L160 630 Z"/>
+    <path d="M160 630 L200 555 L240 630 Z"/>
+    <path d="M240 630 L280 555 L320 630 Z"/>
+    <path d="M320 630 L360 555 L400 630 Z"/>
+    <path d="M400 630 L440 555 L480 630 Z"/>
+    <path d="M480 630 L520 555 L560 630 Z"/>
+    <path d="M560 630 L600 555 L640 630 Z"/>
+    <path d="M640 630 L680 555 L720 630 Z"/>
+    <path d="M720 630 L760 555 L800 630 Z"/>
+    <path d="M800 630 L840 555 L880 630 Z"/>
+    <path d="M880 630 L920 555 L960 630 Z"/>
+    <path d="M960 630 L1000 555 L1040 630 Z"/>
+    <path d="M1040 630 L1080 555 L1120 630 Z"/>
+    <path d="M1120 630 L1160 555 L1200 630 Z"/>
+  </g>
+
+  <!-- Forest accent bar (left edge) -->
+  <rect x="0" y="0" width="14" height="630" fill="#2D5A3D"/>
+
+  <!-- Decorative triangle cluster (top-right) -->
+  <g opacity="0.12">
+    <path d="M1050 80 L1180 80 L1115 180 Z" fill="#2D5A3D"/>
+    <path d="M1000 120 L1080 120 L1040 200 Z" fill="#D4A24C"/>
+    <path d="M1080 180 L1180 180 L1130 260 Z" fill="#C75B39"/>
+  </g>
+
+  <!-- "Lumi" wordmark -->
+  <text x="80" y="290" font-family="Georgia, 'Times New Roman', serif" font-size="128" font-weight="700" fill="#1F4129">Lumi</text>
+
+  <!-- Ochre accent line -->
+  <rect x="84" y="320" width="220" height="5" rx="2.5" fill="#D4A24C"/>
+
+  <!-- Tagline -->
+  <text x="84" y="375" font-family="Georgia, 'Times New Roman', serif" font-size="38" fill="#4B5563">A dictionary of the Taita language</text>
+
+  <!-- Language line -->
+  <text x="84" y="430" font-family="Helvetica, Arial, sans-serif" font-size="26" font-weight="600" fill="#6B7280" letter-spacing="2">TAITA &#8212; SWAHILI &#8212; ENGLISH</text>
+
+  <!-- Footer -->
+  <text x="84" y="560" font-family="Helvetica, Arial, sans-serif" font-size="22" fill="#9CA3AF">Browse, search, and contribute at lumi.dictionary</text>
+</svg>

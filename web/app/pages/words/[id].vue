@@ -481,6 +481,76 @@ const nextSenseOrderIndex = computed(() => {
   return Math.max(...senses.map(s => s.order_index)) + 1
 })
 
+// ── SEO — per-word dynamic meta + JSON-LD structured data ──────────────
+// Each word gets a unique title, description, canonical URL, and
+// schema.org/DefinedTerm JSON-LD so search engines can render rich
+// snippets for dictionary entries.
+const requestUrl = useRequestURL()
+const siteOrigin = `${requestUrl.protocol}//${requestUrl.host}`
+
+const seoTitle = computed(() => {
+  if (!word.value) return 'Word not found'
+  const hw = word.value.headword
+  const pos = word.value.part_of_speech
+  return pos ? `${hw} (${pos})` : hw
+})
+
+const seoDescription = computed(() => {
+  if (!word.value) return 'Taita dictionary entry on Lumi.'
+  const parts: string[] = []
+  if (swahiliTranslation.value) parts.push(`Swahili: ${swahiliTranslation.value.text}`)
+  if (englishTranslation.value) parts.push(`English: ${englishTranslation.value.text}`)
+  if (word.value.dialect) parts.push(`${word.value.dialect} dialect`)
+  const translations = parts.join(', ')
+  return translations
+    ? `Taita word "${word.value.headword}" — ${translations}. Lumi Taita Dictionary.`
+    : `Taita word "${word.value.headword}". Lumi Taita Dictionary.`
+})
+
+const canonicalUrl = computed(() => {
+  const slug = word.value?.slug || route.params.id
+  return `${siteOrigin}/words/${slug}`
+})
+
+useSeoMeta({
+  title: () => `${seoTitle.value} — Lumi`,
+  description: () => seoDescription.value,
+  ogTitle: () => `${seoTitle.value} — Lumi`,
+  ogDescription: () => seoDescription.value,
+  ogSiteName: 'Lumi',
+  ogType: 'article',
+  ogUrl: () => canonicalUrl.value,
+  ogImage: `${siteOrigin}/og-default.png`,
+  twitterCard: 'summary_large_image',
+  twitterTitle: () => `${seoTitle.value} — Lumi`,
+  twitterDescription: () => seoDescription.value,
+  twitterImage: `${siteOrigin}/og-default.png`,
+})
+
+useHead({
+  link: computed(() => [{ rel: 'canonical', href: canonicalUrl.value }]),
+  script: computed(() => {
+    if (!word.value) return []
+    const term: Record<string, unknown> = {
+      '@context': 'https://schema.org',
+      '@type': 'DefinedTerm',
+      name: word.value.headword,
+      inDefinedTermSet: {
+        '@type': 'DefinedTermSet',
+        name: 'Lumi Taita Dictionary',
+        url: siteOrigin,
+      },
+    }
+    if (word.value.part_of_speech) term.termCode = word.value.part_of_speech
+    if (word.value.dialect) term.knowsAbout = word.value.dialect
+    const descParts: string[] = []
+    if (swahiliTranslation.value) descParts.push(`Swahili: ${swahiliTranslation.value.text}`)
+    if (englishTranslation.value) descParts.push(`English: ${englishTranslation.value.text}`)
+    if (descParts.length) term.description = descParts.join('; ')
+    return [{ type: 'application/ld+json', innerHTML: JSON.stringify(term) }]
+  }),
+})
+
 // ── Sense edit form state ────────────────────────────────────────────────
 const editingSenseId = ref<string | null>(null)
 

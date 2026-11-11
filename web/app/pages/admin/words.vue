@@ -99,6 +99,9 @@ definePageMeta({
   middleware: 'admin',
 })
 
+// ── SEO ───────────────────────────────────────────────────────────────────
+useSiteSeo({ noindex: true })
+
 const searchQuery = ref('')
 const hidingId = ref<string | null>(null)
 let searchDebounce: ReturnType<typeof setTimeout> | null = null

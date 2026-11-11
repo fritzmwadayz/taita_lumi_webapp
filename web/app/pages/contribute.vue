@@ -144,6 +144,12 @@ import { onBeforeRouteLeave } from 'vue-router'
 import type { SuggestionListItem } from '~/types'
 import type { ExampleInput } from '~/utils/words'
 
+// ── SEO ───────────────────────────────────────────────────────────────────
+useSiteSeo({
+  title: 'Contribute',
+  description: 'Suggest new Taita words or improvements to the dictionary. Vote on community suggestions and help grow the Lumi Taita dictionary.',
+})
+
 const { isAuthenticated, isReviewer } = useAuth()
 const toast = useToast()
 const isAuthed = computed(() => isAuthenticated.value)

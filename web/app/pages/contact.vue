@@ -131,6 +131,12 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 
+// ── SEO ───────────────────────────────────────────────────────────────────
+useSiteSeo({
+  title: 'Contact',
+  description: 'Get in touch with the Lumi Taita dictionary team. Questions, feedback, or interested in becoming a reviewer.',
+})
+
 const form = reactive({
   name: '',
   email: '',

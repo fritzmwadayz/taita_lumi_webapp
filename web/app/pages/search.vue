@@ -182,6 +182,12 @@
 import { computed, reactive, ref, watch } from 'vue'
 import type { SearchResultItem, WordListItem } from '~/types'
 
+// ── SEO ───────────────────────────────────────────────────────────────────
+useSiteSeo({
+  title: 'Search',
+  description: 'Search and browse the Lumi Taita dictionary. Find Taita words with Swahili and English translations, filter by part of speech and dialect.',
+})
+
 // ── Recent searches (localStorage, max 8, deduped) ─────────────────────────
 const { recent, add, remove, clear } = useRecentSearches()
 

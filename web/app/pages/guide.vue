@@ -186,6 +186,12 @@
 // Ported from src/pages/ReadingGuide.vue — rich static content.
 // localStorage flag → useCookie (SSR-friendly).
 
+// ── SEO ───────────────────────────────────────────────────────────────────
+useSiteSeo({
+  title: 'Reading Guide',
+  description: 'Learn how to read and write Taita words. Covers the Taita alphabet, vowels, consonants, and orthography rules used in the Lumi dictionary.',
+})
+
 const guideVisited = useCookie('lumi_guide_visited')
 onMounted(() => {
   guideVisited.value = 'true'

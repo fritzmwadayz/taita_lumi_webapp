@@ -188,6 +188,9 @@ definePageMeta({
   middleware: 'guest', // redirect to / if already logged in
 })
 
+// ── SEO ───────────────────────────────────────────────────────────────────
+useSiteSeo({ noindex: true })
+
 const route = useRoute()
 const { login, register, loginWithGoogle } = useAuth()
 

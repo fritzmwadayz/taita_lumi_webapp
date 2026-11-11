@@ -148,6 +148,11 @@
 import { computed, ref } from 'vue'
 import type { SearchResultItem, WordListResponse, WordListItem } from '~/types'
 
+// ── SEO ───────────────────────────────────────────────────────────────────
+useSiteSeo({
+  description: 'A community dictionary of the Taita language. Browse Taita words with Swahili and English translations, suggest new words, and vote on community contributions.',
+})
+
 // ── Search bar ─────────────────────────────────────────────────────────────
 const searchQuery = ref('')
 const quickFilters = ['All', 'Nouns', 'Verbs', 'Phrases']

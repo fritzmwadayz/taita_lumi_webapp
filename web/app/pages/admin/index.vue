@@ -135,6 +135,9 @@ definePageMeta({
   middleware: 'admin',
 })
 
+// ── SEO ───────────────────────────────────────────────────────────────────
+useSiteSeo({ noindex: true })
+
 const { data: stats, pending } = await useFetch<AdminStats>('/api/admin/stats')
 const { data: auditData } = await useFetch<{ items: AuditLogEntry[] }>('/api/admin/audit-log', {
   params: { size: 5 },

@@ -354,6 +354,9 @@ definePageMeta({
   middleware: 'auth', // redirect to /login?next=/me if not authenticated
 })
 
+// ── SEO ───────────────────────────────────────────────────────────────────
+useSiteSeo({ noindex: true })
+
 const { user, displayName, isAdmin, isReviewer, logout } = useAuth()
 const session = useUserSession()
 const toast = useToast()

@@ -102,6 +102,9 @@ definePageMeta({
   middleware: 'guest', // redirect to / if already logged in
 })
 
+// ── SEO ───────────────────────────────────────────────────────────────────
+useSiteSeo({ noindex: true })
+
 const toast = useToast()
 
 const email = ref('')

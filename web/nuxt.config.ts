@@ -85,13 +85,15 @@ export default defineNuxtConfig({
         {
           name: 'description',
           content:
-            'Lumi is a community dictionary of the Taita language. You can browse, search, and contribute to grow the dictionary\
-            contains Taita to Swahili and English.',
+            'Lumi is a community dictionary of the Taita language. Browse, search, and contribute Taita words with Swahili and English translations.',
         },
-        // Open Graph basics (expanded per-page in Phase 3)
-        { property: 'og:title', content: 'Lumi a dictionary of the Taita language' },
-        { property: 'og:description', content: 'Browse, search, and contribute to the Taita dictionary.' },
+        // Open Graph + Twitter Card defaults. Per-page useSeoMeta() in each
+        // page component overrides these with page-specific values.
+        { property: 'og:title', content: 'Lumi — A dictionary of the Taita language' },
+        { property: 'og:description', content: 'Browse, search, and contribute Taita words with Swahili and English translations.' },
         { property: 'og:type', content: 'website' },
+        { property: 'og:image', content: '/og-default.png' },
+        { name: 'twitter:card', content: 'summary_large_image' },
       ],
       link: [
         { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
