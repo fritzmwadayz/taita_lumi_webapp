@@ -101,11 +101,57 @@ export default defineNuxtConfig({
     },
   },
 
+  // ── Route rules (hybrid rendering) ─────────────────────────────────────
+  // Controls how each route is rendered and cached:
+  //   isr: N       — render once, cache at CDN for N seconds, regenerate on
+  //                  next request after expiry. Best for word pages: the first
+  //                  visitor triggers a server render (one DB query), then the
+  //                  cached HTML is served instantly to everyone else.
+  //   prerender    — render to static HTML at build time. Served from the CDN
+  //                  edge with zero server function, zero DB query. Best for
+  //                  static content that rarely changes.
+  //   ssr: true    — always render on the server (no caching). Best for pages
+  //                  with per-request dynamic content (search results, live lists).
+  //
+  // Word pages get BOTH: known words are pre-rendered at build time (see
+  // nitro.prerender below + server/plugins/prerender-words.ts), and words
+  // added after deploy are served via ISR until the next build.
+  routeRules: {
+    // ISR — cached at CDN, regenerated after 1 hour
+    '/words/**':    { isr: 3600 },
+    '/':             { isr: 3600 },
+    '/sitemap.xml':  { isr: 3600 },
+
+    // SSR — always render fresh (dynamic content)
+    '/search':       { ssr: true },
+    '/contribute':   { ssr: true },
+
+    // Pre-render at build time — static content, served from CDN edge
+    '/guide':        { prerender: true },
+    '/support':      { prerender: true },
+    '/contact':      { prerender: true },
+  },
+
   // ── Nitro ──────────────────────────────────────────────────────────────
   // No devProxy — all /api/* requests are handled by Nitro server routes
   // (server/api/[...].ts catch-all + specific auth handlers). The proxy.ts
   // utility forwards to FastAPI directly via $fetch with auth + anon cookie.
   // ⚠️ Do NOT add nitro.devProxy — it intercepts /api/* before Nitro handlers
   // can run, bypassing auth and stripping the /api/ prefix.
-  nitro: {},
+  nitro: {
+    prerender: {
+      // Crawl <NuxtLink> from pre-rendered pages to discover more routes
+      // (home page links to recent words → those get pre-rendered too).
+      crawlLinks: true,
+
+      // Don't fail the build if some routes can't be pre-rendered (e.g.,
+      // backend is down during build — ISR will handle them at runtime).
+      failOnError: false,
+
+      // Initial routes to pre-render. The word-page slugs are added
+      // dynamically by server/plugins/prerender-words.ts, which fetches
+      // them from FastAPI at build time.
+      routes: ['/', '/guide', '/support', '/contact'],
+    },
+  },
 })
