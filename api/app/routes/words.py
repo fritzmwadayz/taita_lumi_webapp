@@ -560,6 +560,31 @@ async def list_words(
 
 
 # ═══════════════════════════════════════════════════════════════
+# GET /api/words/slugs
+# ═══════════════════════════════════════════════════════════════
+
+
+@router.get("/words/slugs")
+async def list_word_slugs(db: AsyncSession = Depends(get_db)):
+    """Return slug + lastmod for every live word.
+
+    Public and unauthenticated: this route feeds the Nuxt sitemap
+    source (server/api/__sitemap__/urls.ts), which the Nuxt server requests
+    without credentials.
+    """
+    last_touched = func.coalesce(Word.reviewed_at, Word.created_at)
+    result = await db.execute(
+        select(Word.slug, last_touched)
+        .where(Word.status == "live")
+        .order_by(Word.created_at.desc())
+    )
+    return [
+        {"slug": slug, "updated_at": ts.isoformat() if ts else None}
+        for slug, ts in result.all()
+    ]
+
+
+# ═══════════════════════════════════════════════════════════════
 # GET /api/words/{slug_or_id} — full word detail
 # ═══════════════════════════════════════════════════════════════
 
