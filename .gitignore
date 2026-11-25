@@ -82,3 +82,8 @@ tmp/
 .cache/
 site/
 bak/
+web/.vercel/
+
+# Python archives
+*.zip
+

@@ -3,7 +3,10 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "nuxt build",
+    "preexport": "node -e \"console.log('[export] snapshotting dictionary from LUMI_API_BASE_URL=' + (process.env.LUMI_API_BASE_URL || 'http://localhost:8000'))\"",
+    "export": "node scripts/export-dictionary.mjs",
+    "build": "npm run export && nuxt build",
+    "build:static": "npm run export && nuxt generate",
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",

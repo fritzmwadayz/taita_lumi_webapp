@@ -119,6 +119,22 @@
           </div>
         </header>
 
+        <!-- ─── Duplicate hand-off banner (?from=duplicate from /contribute) ──── -->
+        <div v-if="showDuplicateBanner" class="mt-4 bg-ochre/15 border border-ochre/40 rounded-xl p-4 flex items-start gap-3 flex-wrap">
+          <div class="flex-1 min-w-[240px]">
+            <p class="text-sm font-semibold text-ochre-dark mb-1">Came here after a duplicate match?</p>
+            <p class="text-xs text-stone mb-3">"{{ word.headword }}" already exists — help it grow instead:</p>
+            <div class="flex gap-2 flex-wrap">
+              <button class="focus-ring btn btn-secondary btn-sm" @click="openRelationForm">{{ isReviewer ? '+ Add a variant' : '+ Suggest a variant' }}</button>
+              <button class="focus-ring btn btn-secondary btn-sm" @click="openTranslationForm('sw')">{{ isReviewer ? '+ Add a translation' : '+ Suggest a translation' }}</button>
+              <button class="focus-ring btn btn-secondary btn-sm" @click="openExampleForm()">{{ isReviewer ? '+ Add an example' : '+ Suggest an example' }}</button>
+            </div>
+          </div>
+          <button class="focus-ring text-stone-light hover:text-stone p-1 rounded" aria-label="Dismiss" @click="duplicateBannerDismissed = true">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
         <!-- ═══════════════════════════════════════════════════════════════ -->
         <!-- MEANINGS SECTION (continuous numbered senses)                    -->
         <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -270,17 +286,23 @@
               v-if="!swahiliTranslation && !translationFormOpen"
               class="focus-ring btn btn-secondary btn-sm"
               @click="openTranslationForm('sw')"
-            >+ Suggest Swahili translation</button>
+            >{{ isReviewer ? '+ Add Swahili translation' : '+ Suggest Swahili translation' }}</button>
             <button
               v-if="!englishTranslation && !translationFormOpen"
               class="focus-ring btn btn-secondary btn-sm"
               @click="openTranslationForm('en')"
-            >+ Suggest English translation</button>
+            >{{ isReviewer ? '+ Add English translation' : '+ Suggest English translation' }}</button>
           </div>
 
-          <!-- Translation suggestion form -->
+          <!-- Translation form (role-aware: reviewers add directly, others suggest) -->
           <div v-if="translationFormOpen" class="mt-4 bg-cream-50 border border-cream-200 rounded-lg p-4">
-            <p class="text-xs font-semibold text-ink mb-3">Suggest {{ translationFormLanguage === 'sw' ? 'Swahili' : 'English' }} translation for "{{ word.headword }}"</p>
+            <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+              <p class="text-xs font-semibold text-ink">{{ translationFormTitle }}</p>
+              <div v-if="isReviewer" class="flex bg-cream-100 rounded-lg p-1">
+                <button :class="['px-2.5 py-1 rounded-md text-xs font-medium transition', translationMode === 'direct' ? 'bg-ink text-cream' : 'text-stone hover:text-ink']" @click="translationMode = 'direct'">Add directly (live)</button>
+                <button :class="['px-2.5 py-1 rounded-md text-xs font-medium transition', translationMode === 'suggest' ? 'bg-ink text-cream' : 'text-stone hover:text-ink']" @click="translationMode = 'suggest'">Suggest (queue)</button>
+              </div>
+            </div>
             <input v-model="translationHoneypot" type="text" name="website" style="position: absolute; left: -9999px; opacity: 0; pointer-events: none" tabindex="-1" autocomplete="off" aria-hidden="true" />
             <input
               v-model="translationFormText"
@@ -290,10 +312,11 @@
               @keyup.enter="submitTranslationSuggestion"
             />
             <div v-if="translationFormError" class="text-xs text-terracotta mb-2">{{ translationFormError }}</div>
-            <div v-if="translationFormSuccess" class="text-xs text-forest mb-2">Suggestion submitted! It'll appear once the community votes on it.</div>
-            <div class="flex gap-2">
-              <button :disabled="translationFormSubmitting" class="focus-ring btn btn-primary btn-sm" @click="submitTranslationSuggestion">{{ translationFormSubmitting ? 'Submitting...' : 'Submit' }}</button>
+            <div v-if="translationFormSuccess" class="text-xs text-forest mb-2">{{ translationFormSuccess }}</div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <button :disabled="translationFormSubmitting" class="focus-ring btn btn-primary btn-sm" @click="submitTranslationSuggestion">{{ translationFormSubmitting ? 'Submitting...' : translationMode === 'direct' ? 'Add translation' : 'Submit' }}</button>
               <button class="focus-ring btn btn-ghost btn-sm" @click="closeTranslationForm">Cancel</button>
+              <p class="ml-auto text-[10px] text-stone-light">{{ translationMode === 'direct' ? 'Goes live immediately — reviewer action.' : 'Community vote needed before it appears.' }}</p>
             </div>
           </div>
         </section>
@@ -331,8 +354,8 @@
               </svg>
               {{ isReviewer ? 'Add example sentence' : 'Suggest example sentence' }}
             </button>
-            <button v-if="!swahiliTranslation && !translationFormOpen" class="focus-ring btn btn-secondary btn-sm" @click="openTranslationForm('sw')">+ Suggest Swahili translation</button>
-            <button v-if="!englishTranslation && !translationFormOpen" class="focus-ring btn btn-secondary btn-sm" @click="openTranslationForm('en')">+ Suggest English translation</button>
+            <button v-if="!swahiliTranslation && !translationFormOpen" class="focus-ring btn btn-secondary btn-sm" @click="openTranslationForm('sw')">{{ isReviewer ? '+ Add Swahili translation' : '+ Suggest Swahili translation' }}</button>
+            <button v-if="!englishTranslation && !translationFormOpen" class="focus-ring btn btn-secondary btn-sm" @click="openTranslationForm('en')">{{ isReviewer ? '+ Add English translation' : '+ Suggest English translation' }}</button>
           </div>
 
           <!-- ExampleForm (when open) -->
@@ -349,16 +372,23 @@
             </div>
           </Transition>
 
-          <!-- Translation suggestion form -->
+          <!-- Translation form (role-aware: reviewers add directly, others suggest) -->
           <div v-if="translationFormOpen" class="mt-4 bg-cream-50 border border-cream-200 rounded-lg p-4">
-            <p class="text-xs font-semibold text-ink mb-3">Suggest {{ translationFormLanguage === 'sw' ? 'Swahili' : 'English' }} translation for "{{ word.headword }}"</p>
+            <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+              <p class="text-xs font-semibold text-ink">{{ translationFormTitle }}</p>
+              <div v-if="isReviewer" class="flex bg-cream-100 rounded-lg p-1">
+                <button :class="['px-2.5 py-1 rounded-md text-xs font-medium transition', translationMode === 'direct' ? 'bg-ink text-cream' : 'text-stone hover:text-ink']" @click="translationMode = 'direct'">Add directly (live)</button>
+                <button :class="['px-2.5 py-1 rounded-md text-xs font-medium transition', translationMode === 'suggest' ? 'bg-ink text-cream' : 'text-stone hover:text-ink']" @click="translationMode = 'suggest'">Suggest (queue)</button>
+              </div>
+            </div>
             <input v-model="translationHoneypot" type="text" name="website" style="position: absolute; left: -9999px; opacity: 0; pointer-events: none" tabindex="-1" autocomplete="off" aria-hidden="true" />
             <input v-model="translationFormText" type="text" class="field mb-3" :placeholder="translationFormLanguage === 'sw' ? 'mf. mlima, kilima' : 'e.g. mountain, hill'" @keyup.enter="submitTranslationSuggestion" />
             <div v-if="translationFormError" class="text-xs text-terracotta mb-2">{{ translationFormError }}</div>
-            <div v-if="translationFormSuccess" class="text-xs text-forest mb-2">Suggestion submitted! It'll appear once the community votes on it.</div>
-            <div class="flex gap-2">
-              <button :disabled="translationFormSubmitting" class="focus-ring btn btn-primary btn-sm" @click="submitTranslationSuggestion">{{ translationFormSubmitting ? 'Submitting...' : 'Submit' }}</button>
+            <div v-if="translationFormSuccess" class="text-xs text-forest mb-2">{{ translationFormSuccess }}</div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <button :disabled="translationFormSubmitting" class="focus-ring btn btn-primary btn-sm" @click="submitTranslationSuggestion">{{ translationFormSubmitting ? 'Submitting...' : translationMode === 'direct' ? 'Add translation' : 'Submit' }}</button>
               <button class="focus-ring btn btn-ghost btn-sm" @click="closeTranslationForm">Cancel</button>
+              <p class="ml-auto text-[10px] text-stone-light">{{ translationMode === 'direct' ? 'Goes live immediately — reviewer action.' : 'Community vote needed before it appears.' }}</p>
             </div>
           </div>
         </section>
@@ -384,19 +414,26 @@
             </div>
           </div>
           <div v-else class="text-sm text-stone-light italic mb-4">No related words yet.</div>
-          <button class="focus-ring btn btn-secondary btn-sm" @click="openRelationForm">+ Suggest a related word</button>
+          <button class="focus-ring btn btn-secondary btn-sm" @click="openRelationForm">{{ isReviewer ? '+ Add a related word' : '+ Suggest a related word' }}</button>
 
-          <!-- Rich inline variation form -->
+          <!-- Rich inline variation form (role-aware: reviewers add directly,
+               others suggest — mirrors the new-word mode toggle) -->
           <Transition name="expand">
             <div v-if="relationFormOpen" class="mt-4 bg-cream-50 border border-cream-200 rounded-xl p-5">
               <input v-model="relationHoneypot" type="text" name="website" style="position: absolute; left: -9999px; opacity: 0; pointer-events: none" tabindex="-1" autocomplete="off" aria-hidden="true" />
-              <div class="flex items-center justify-between mb-4">
-                <p class="text-sm font-semibold text-ink">Suggest a variant of <span class="font-serif text-base text-forest">{{ word.headword }}</span></p>
-                <button class="focus-ring text-stone hover:text-terracotta p-1 rounded" aria-label="Collapse form" @click="closeRelationForm">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
+              <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
+                <p class="text-sm font-semibold text-ink">{{ relationFormTitle }}</p>
+                <div class="flex items-center gap-3">
+                  <div v-if="isReviewer" class="flex bg-cream-100 rounded-lg p-1">
+                    <button :class="['px-2.5 py-1 rounded-md text-xs font-medium transition', relationMode === 'direct' ? 'bg-ink text-cream' : 'text-stone hover:text-ink']" @click="relationMode = 'direct'">Add directly (live)</button>
+                    <button :class="['px-2.5 py-1 rounded-md text-xs font-medium transition', relationMode === 'suggest' ? 'bg-ink text-cream' : 'text-stone hover:text-ink']" @click="relationMode = 'suggest'">Suggest (queue)</button>
+                  </div>
+                  <button class="focus-ring text-stone hover:text-terracotta p-1 rounded" aria-label="Collapse form" @click="closeRelationForm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </div>
               </div>
-              <p class="text-xs text-stone mb-4 leading-relaxed">A variant is a different spelling, dialect form, or conjugation. Provide as much detail as you'd give a new word — it goes into the community review queue.</p>
+              <p class="text-xs text-stone mb-4 leading-relaxed">{{ relationFormCopy }}</p>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div><label class="field-label">Variant word <span class="text-terracotta">*</span></label><input v-model="relationForm.headword" type="text" class="field" placeholder="e.g. bhaka" /></div>
                 <div><label class="field-label">Relation type <span class="text-stone-light font-normal">(optional — leave blank if unsure)</span></label><select v-model="relationForm.relation_type" class="field"><option value="">— Not sure —</option><option value="variant">Variant — different spelling or dialect</option><option value="plural">Plural — more than one</option><option value="singular">Singular — one</option><option value="conjugation">Conjugation — different tense or form of a verb</option><option value="antonym">Antonym — opposite meaning</option><option value="derived">Derived from — comes from this word</option><option value="see_also">See also — related but different</option></select></div>
@@ -406,14 +443,14 @@
                 <div><label class="field-label">Swahili translation</label><input v-model="relationForm.swahili_translation" type="text" class="field" placeholder="mf. amekuja — enter * if unsure" /></div>
                 <div class="md:col-span-2"><label class="field-label">English translation <span class="text-stone-light font-normal">(optional)</span></label><input v-model="relationForm.english_translation" type="text" class="field" placeholder="e.g. he/she has come" /></div>
                 <div class="md:col-span-2"><label class="field-label">Literal translation <span class="text-stone-light font-normal">(optional)</span></label><input v-model="relationForm.literal_translation" type="text" class="field" placeholder="e.g. 'he has come hither'" /></div>
-                <div class="md:col-span-2"><label class="field-label">Notes for reviewers <span class="text-stone-light font-normal">(optional)</span></label><textarea v-model="relationForm.rationale" rows="2" class="field" placeholder="Why does this variant belong here?"></textarea></div>
+                <div v-if="relationMode === 'suggest'" class="md:col-span-2"><label class="field-label">Notes for reviewers <span class="text-stone-light font-normal">(optional)</span></label><textarea v-model="relationForm.rationale" rows="2" class="field" placeholder="Why does this variant belong here?"></textarea></div>
               </div>
               <div v-if="relationFormError" class="text-xs text-terracotta mb-3">{{ relationFormError }}</div>
-              <div v-if="relationFormSuccess" class="text-xs text-forest mb-3">Suggestion submitted! It'll appear once the community votes on it.</div>
+              <div v-if="relationFormSuccess" class="text-xs text-forest mb-3">{{ relationFormSuccess }}</div>
               <div class="flex items-center gap-3 pt-2 border-t border-cream-200">
-                <button :disabled="relationFormSubmitting" class="focus-ring btn btn-primary btn-sm" @click="submitRelationSuggestion">{{ relationFormSubmitting ? 'Submitting...' : 'Submit suggestion' }}</button>
+                <button :disabled="relationFormSubmitting" class="focus-ring btn btn-primary btn-sm" @click="submitRelationSuggestion">{{ relationFormSubmitting ? 'Submitting...' : relationMode === 'direct' ? 'Add variant' : 'Submit suggestion' }}</button>
                 <button class="focus-ring btn btn-ghost btn-sm" @click="closeRelationForm">Cancel</button>
-                <p class="ml-auto text-[10px] text-stone-light">Goes into the community review queue.</p>
+                <p class="ml-auto text-[10px] text-stone-light">{{ relationMode === 'direct' ? 'Goes live immediately — reviewer action.' : 'Goes into the community review queue.' }}</p>
               </div>
             </div>
           </Transition>
@@ -435,18 +472,43 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import type { WordDetail } from '~/types'
 
 const route = useRoute()
 const router = useRouter()
 const { isReviewer, isAdmin } = useAuth()
+const toast = useToast()
 
-// ── Fetch word detail ───────────────────────────────────────────────────
-const { data: word, pending, error, refresh } = await useFetch<WordDetail>(
-  () => `/api/words/${route.params.id}`,
-  { watch: [() => route.params.id] },
+// ── Fetch word detail — static snapshot first, live API fallback ─────────
+// /dictionary/words/<slug>.json is generated at deploy time (see
+// scripts/export-dictionary.mjs), so anonymous word views never touch the
+// backend. Words added after the last export fall through to the live API,
+// and refresh() after an edit always goes live. Awaited so SSR/prerender
+// renders the word into the HTML.
+const { word, pending, error, wasStatic, refresh } = await useStaticWord(
+  computed(() => route.params.id as string),
 )
+
+// ── Duplicate hand-off (?from=duplicate from /contribute's hand-off panel) ─
+// Shows a dismissible banner with role-aware CTAs, and can auto-open the
+// form requested via ?form=variant|translation|example.
+const duplicateBannerDismissed = ref(false)
+const showDuplicateBanner = computed(() =>
+  route.query.from === 'duplicate' && !duplicateBannerDismissed.value,
+)
+
+watch(() => route.query.from, (from) => {
+  if (from === 'duplicate') duplicateBannerDismissed.value = false
+})
+
+// Auto-open the requested inline form once the word detail is available.
+watch([() => route.query.form, word], ([form]) => {
+  if (route.query.from !== 'duplicate' || !form || !word.value) return
+  if (form === 'variant') openRelationForm()
+  else if (form === 'translation') openTranslationForm('sw')
+  else if (form === 'example') openExampleForm()
+}, { immediate: true })
 
 // ── Derived data ─────────────────────────────────────────────────────────
 const swahiliTranslation = computed(() => word.value?.translations?.find((g) => g.language === 'sw'))
@@ -662,53 +724,94 @@ async function doDelete() {
   } finally { deleting.value = false }
 }
 
-// ── Translation suggestion form ──────────────────────────────────────────
+// ── Translation form (role-aware) ─────────────────────────────────────────
+// Reviewers get a direct/suggest toggle: direct mode PATCHes the word (the
+// backend creates the Translation row if it doesn't exist), suggest mode is
+// the original community-suggestion flow. Non-reviewers always suggest.
 const translationFormOpen = ref(false)
 const translationFormLanguage = ref('sw')
 const translationFormText = ref('')
 const translationFormSubmitting = ref(false)
 const translationFormError = ref('')
-const translationFormSuccess = ref(false)
+const translationFormSuccess = ref('')
 const translationHoneypot = ref('')
+const translationMode = ref<'direct' | 'suggest'>('suggest')
+
+const translationFormTitle = computed(() => {
+  const langName = translationFormLanguage.value === 'sw' ? 'Swahili' : 'English'
+  const verb = isReviewer.value && translationMode.value === 'direct' ? 'Add' : 'Suggest'
+  return `${verb} a ${langName} translation for "${word.value?.headword ?? ''}"`
+})
 
 function openTranslationForm(lang: string) {
   // Close other open forms
   addSenseFormOpen.value = false
   exampleFormOpen.value = false
   translationFormLanguage.value = lang; translationFormText.value = ''
-  translationFormError.value = ''; translationFormSuccess.value = false; translationFormOpen.value = true
+  translationFormError.value = ''; translationFormSuccess.value = ''
+  translationMode.value = isReviewer.value ? 'direct' : 'suggest'
+  translationFormOpen.value = true
 }
 function closeTranslationForm() {
   translationFormOpen.value = false; translationFormText.value = ''
-  translationFormError.value = ''; translationFormSuccess.value = false
+  translationFormError.value = ''; translationFormSuccess.value = ''
 }
 
 async function submitTranslationSuggestion() {
   if (!translationFormText.value.trim()) { translationFormError.value = 'Please enter a translation.'; return }
   // Honeypot — silently "succeed" without sending
-  if (translationHoneypot.value) { translationFormSuccess.value = true; translationFormText.value = ''; return }
-  translationFormSubmitting.value = true; translationFormError.value = ''; translationFormSuccess.value = false
+  if (translationHoneypot.value) { translationFormSuccess.value = 'Thanks!'; translationFormText.value = ''; return }
+  translationFormSubmitting.value = true; translationFormError.value = ''; translationFormSuccess.value = ''
   try {
-    await createSuggestion({
-      target_type: 'translation', target_id: word.value!.id,
-      proposed_value: { language: translationFormLanguage.value, text: translationFormText.value.trim() },
-    })
-    translationFormSuccess.value = true; translationFormText.value = ''
+    if (isReviewer.value && translationMode.value === 'direct') {
+      // Direct add: PATCH /api/words/{id} accepts word-level translation
+      // fields and creates the Translation row if it doesn't exist.
+      const fieldKey = translationFormLanguage.value === 'sw' ? 'swahili_translation' : 'english_translation'
+      await editWord(word.value!.id, { [fieldKey]: translationFormText.value.trim() })
+      await refresh()
+      translationFormSuccess.value = "Translation added — it's live on the word now."
+      toast.success('Translation added')
+    } else {
+      await createSuggestion({
+        target_type: 'translation', target_id: word.value!.id,
+        proposed_value: { language: translationFormLanguage.value, text: translationFormText.value.trim() },
+      })
+      translationFormSuccess.value = "Suggestion submitted! It'll appear once the community votes on it."
+    }
+    translationFormText.value = ''
   } catch (err: unknown) {
     const e = err as { response?: { _data?: { detail?: string } }; message?: string }
     translationFormError.value = e.response?._data?.detail || 'Failed to submit.'
   } finally { translationFormSubmitting.value = false }
 }
 
-// ── Rich relation/variation suggestion form ──────────────────────────────
+// ── Rich relation/variation form (role-aware) ─────────────────────────────
+// Reviewers get a direct/suggest toggle: direct mode POSTs to
+// /api/words/{id}/relations (new endpoint — resolves or creates the related
+// word, links it, returns the updated word). Suggest mode is the original
+// community-suggestion flow. Non-reviewers always suggest.
 const relationFormOpen = ref(false)
 const relationFormSubmitting = ref(false)
 const relationFormError = ref('')
-const relationFormSuccess = ref(false)
+const relationFormSuccess = ref('')
 const relationHoneypot = ref('')
+const relationMode = ref<'direct' | 'suggest'>('suggest')
 const relationForm = reactive({
   headword: '', relation_type: '', dialect: '', part_of_speech: '',
   noun_class: '', swahili_translation: '', english_translation: '', literal_translation: '', rationale: '',
+})
+
+const relationFormTitle = computed(() => {
+  const verb = isReviewer.value && relationMode.value === 'direct' ? 'Add' : 'Suggest'
+  return `${verb} a variant of "${word.value?.headword ?? ''}"`
+})
+
+const relationFormCopy = computed(() => {
+  const base = "A variant is a different spelling, dialect form, or conjugation. Provide as much detail as you'd give a new word"
+  if (isReviewer.value && relationMode.value === 'direct') {
+    return `${base} — it goes live immediately and is linked to "${word.value?.headword ?? ''}". If the variant word doesn't exist yet, it's created and linked in one step.`
+  }
+  return `${base} — it goes into the community review queue.`
 })
 
 function openRelationForm() {
@@ -716,39 +819,62 @@ function openRelationForm() {
     headword: '', relation_type: '', dialect: '', part_of_speech: '',
     noun_class: '', swahili_translation: '', english_translation: '', literal_translation: '', rationale: '',
   })
-  relationFormError.value = ''; relationFormSuccess.value = false; relationFormOpen.value = true
+  relationMode.value = isReviewer.value ? 'direct' : 'suggest'
+  relationFormError.value = ''; relationFormSuccess.value = ''; relationFormOpen.value = true
 }
 function closeRelationForm() {
-  relationFormOpen.value = false; relationFormError.value = ''; relationFormSuccess.value = false
+  relationFormOpen.value = false; relationFormError.value = ''; relationFormSuccess.value = ''
 }
 
 async function submitRelationSuggestion() {
   if (!relationForm.headword.trim()) { relationFormError.value = 'Please enter the variant word.'; return }
   // Honeypot — silently "succeed" without sending
-  if (relationHoneypot.value) { relationFormSuccess.value = true; relationForm.headword = ''; return }
-  relationFormSubmitting.value = true; relationFormError.value = ''; relationFormSuccess.value = false
+  if (relationHoneypot.value) { relationFormSuccess.value = 'Thanks!'; relationForm.headword = ''; return }
+  relationFormSubmitting.value = true; relationFormError.value = ''; relationFormSuccess.value = ''
   try {
-    await createSuggestion({
-      target_type: 'relation', target_id: word.value!.id,
-      proposed_value: {
+    if (isReviewer.value && relationMode.value === 'direct') {
+      // Direct add: goes live immediately, no queue round-trip. The endpoint
+      // returns the updated WordDetail (relations populated) — swap it in.
+      const updated = await createRelation(word.value!.id, {
         related_word: relationForm.headword.trim(),
-        relation_type: relationForm.relation_type,
-        headword: relationForm.headword.trim(),
+        relation_type: relationForm.relation_type || 'variant',
         part_of_speech: relationForm.part_of_speech || null,
         noun_class: relationForm.noun_class || null,
         dialect: relationForm.dialect || null,
-        swahili_translation: relationForm.swahili_translation.trim(),
+        swahili_translation: relationForm.swahili_translation.trim() || null,
         english_translation: relationForm.english_translation.trim() || null,
         literal_translation: relationForm.literal_translation || null,
-      },
-      rationale: relationForm.rationale.trim() || null,
-    })
-    relationFormSuccess.value = true
-    relationForm.headword = ''; relationForm.swahili_translation = ''
-    relationForm.english_translation = ''; relationForm.literal_translation = ''; relationForm.rationale = ''
+      })
+      word.value = updated
+      toast.success('Variant added — it\'s live now')
+      closeRelationForm()
+    } else {
+      await createSuggestion({
+        target_type: 'relation', target_id: word.value!.id,
+        proposed_value: {
+          related_word: relationForm.headword.trim(),
+          relation_type: relationForm.relation_type,
+          headword: relationForm.headword.trim(),
+          part_of_speech: relationForm.part_of_speech || null,
+          noun_class: relationForm.noun_class || null,
+          dialect: relationForm.dialect || null,
+          swahili_translation: relationForm.swahili_translation.trim(),
+          english_translation: relationForm.english_translation.trim() || null,
+          literal_translation: relationForm.literal_translation || null,
+        },
+        rationale: relationForm.rationale.trim() || null,
+      })
+      relationFormSuccess.value = "Suggestion submitted! It'll appear once the community votes on it."
+      relationForm.headword = ''; relationForm.swahili_translation = ''
+      relationForm.english_translation = ''; relationForm.literal_translation = ''; relationForm.rationale = ''
+    }
   } catch (err: unknown) {
-    const e = err as { response?: { _data?: { detail?: string } }; message?: string }
-    relationFormError.value = e.response?._data?.detail || 'Failed to submit.'
+    const e = err as { response?: { status?: number; _data?: { detail?: string } }; message?: string }
+    if (e.response?.status === 403) {
+      relationFormError.value = 'Reviewer access required to add variants directly.'
+    } else {
+      relationFormError.value = e.response?._data?.detail || 'Failed to submit.'
+    }
   } finally { relationFormSubmitting.value = false }
 }
 

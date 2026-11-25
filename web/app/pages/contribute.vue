@@ -91,9 +91,47 @@
           </p>
         </div>
 
-        <div v-if="formError" class="mt-6 bg-terracotta/10 border border-terracotta/30 rounded-lg p-4 text-sm text-terracotta-dark">
+        <!-- Duplicate hand-off: a 409 match is a redirection, not an error.
+             Replaces the old "This word already exists." error box with a
+             guided panel pointing at the contribution paths on that word. -->
+        <div v-if="duplicateWord" class="mt-6 bg-forest/5 border border-forest/30 rounded-xl p-5 max-w-3xl">
+          <p class="font-serif text-lg text-forest-dark mb-1">"{{ duplicateWord.headword }}" is already in the dictionary</p>
+          <p class="text-sm text-stone mb-4">Your submission matched an existing entry — nothing was lost. You can still enrich it:</p>
+          <div class="flex items-center gap-3 flex-wrap mb-4">
+            <NuxtLink
+              :to="{ path: `/words/${duplicateWord.slug || duplicateWord.id}`, query: { from: 'duplicate' } }"
+              class="focus-ring btn btn-primary btn-md"
+            >Go to "{{ duplicateWord.headword }}" →</NuxtLink>
+            <span class="text-xs text-stone-light">opens with contribution actions ready</span>
+          </div>
+          <ul class="flex flex-col sm:flex-row flex-wrap gap-2 text-xs">
+            <li class="bg-white border border-cream-200 rounded-lg px-3 py-2">
+              <NuxtLink
+                :to="{ path: `/words/${duplicateWord.slug || duplicateWord.id}`, query: { from: 'duplicate', form: 'variant' } }"
+                class="text-forest hover:underline font-medium"
+              >{{ isReviewer ? 'Add a variant' : 'Suggest a variant' }}</NuxtLink>
+              <span class="text-stone-light"> — dialect form, spelling, conjugation</span>
+            </li>
+            <li class="bg-white border border-cream-200 rounded-lg px-3 py-2">
+              <NuxtLink
+                :to="{ path: `/words/${duplicateWord.slug || duplicateWord.id}`, query: { from: 'duplicate', form: 'translation' } }"
+                class="text-forest hover:underline font-medium"
+              >{{ isReviewer ? 'Add a translation' : 'Suggest a translation' }}</NuxtLink>
+              <span class="text-stone-light"> — Swahili or English</span>
+            </li>
+            <li class="bg-white border border-cream-200 rounded-lg px-3 py-2">
+              <NuxtLink
+                :to="{ path: `/words/${duplicateWord.slug || duplicateWord.id}`, query: { from: 'duplicate', form: 'example' } }"
+                class="text-forest hover:underline font-medium"
+              >{{ isReviewer ? 'Add an example sentence' : 'Suggest an example sentence' }}</NuxtLink>
+              <span class="text-stone-light"> — show it in use</span>
+            </li>
+          </ul>
+          <p class="text-xs text-stone-light mt-4">Different word that only shares the spelling? Add a distinguishing detail (dialect or noun class) and submit again — your entries below are kept.</p>
+        </div>
+
+        <div v-else-if="formError" class="mt-6 bg-terracotta/10 border border-terracotta/30 rounded-lg p-4 text-sm text-terracotta-dark">
           {{ formError }}
-          <div v-if="duplicateWord" class="mt-2"><NuxtLink :to="`/words/${duplicateWord.slug || duplicateWord.id}`" class="text-forest hover:underline font-medium">See "{{ duplicateWord.headword }}" →</NuxtLink></div>
         </div>
 
         <div v-if="success" class="mt-6 bg-forest/10 border border-forest/30 rounded-lg p-4 text-sm text-forest-dark">
@@ -297,7 +335,11 @@ async function onSubmit() {
       if (detail && typeof detail === 'object' && (detail as { existing_word_id?: string }).existing_word_id) {
         const d = detail as { existing_word_id: string; existing_headword: string; existing_slug?: string; message?: string }
         duplicateWord.value = { id: d.existing_word_id, headword: d.existing_headword, slug: d.existing_slug }
-        formError.value = d.message || 'This word already exists.'
+        // No formError here — the duplicate hand-off panel (above the submit
+        // button) replaces the error framing and guides the user to the
+        // contribution paths on the existing word's page. Form values are
+        // deliberately kept so "add a distinguishing detail and resubmit"
+        // works without retyping.
       } else { formError.value = typeof detail === 'string' ? detail : 'A word with this spelling already exists.' }
     } else if (e.response?.status === 401) { formError.value = 'Please sign in to add words directly.' }
     else { formError.value = (e.response?._data?.detail as string) || 'Something went wrong. Please try again.' }

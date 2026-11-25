@@ -4,8 +4,8 @@ FastAPI backend for the **Lumi** dictionary — a public, community-built
 dictionary of the Taita language.
 
 This is the `api/` subfolder of the larger Lumi monorepo. The sibling
-`web/` subfolder contains the Nuxt frontend; deployment instructions for both
-live at the repo root and (eventually) in a dedicated deployment guide.
+`web/` subfolder contains the Nuxt frontend; deployment instructions for
+both live at the repo root (`README.md` — Vercel + Render + Neon).
 
 ## What's here
 
@@ -15,6 +15,12 @@ live at the repo root and (eventually) in a dedicated deployment guide.
 - **Password reset** via email + **email sending** (`aiosmtplib`, with a dev-mode log-file sink for testing without SMTP)
 - **Words, senses, translations, examples, variations, relationships** —
   the word graph that makes up the dictionary
+- **`GET /api/export/dictionary`** — one-shot bulk dump of every live word
+  (full `WordDetail`s + the list index, ~6 queries total). The frontend
+  snapshots this at deploy time so the public site serves statically —
+  anonymous traffic never hits the API. See
+  [docs/api-reference.md](docs/api-reference.md) and the repo-root README
+  for the deploy flow
 - **Suggestions + votes** — community-driven corrections with auto-promotion
   after a voting threshold
 - **Admin surface** — user role/block management, word hide/merge, audit log

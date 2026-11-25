@@ -1,12 +1,9 @@
 # Deployment
 
-> **This is a stub.** The user owns the full deployment story — see the
-> note at the bottom.
-
-This doc covers what the backend needs from a hosting environment, so
-you can plan a deployment. The actual step-by-step for specific hosts
-(Render, Fly, Railway, your own VPS) is being written as a separate
-deployment guide at the repo root.
+This doc covers what the backend needs from a hosting environment. The
+actual step-by-step (Neon project, Render service, Vercel frontend — the
+whole monorepo deploy) lives at the repo root:
+**[`README.md` → Deployment instructions](../../README.md#deployment-instructions)**.
 
 ## What the backend needs
 
@@ -124,21 +121,20 @@ KEEP_USER=1 ADMIN_EMAIL='admin@your-domain.com' ADMIN_PASSWORD='AdminPass12345!'
 
 If any of those fail, check the host's logs.
 
-## Where this doc is thin (intentional)
+## Where the step-by-step lives
 
-The user said they'll write a separate deployment-instructions doc at
-the repo root. This doc is just the env-var reference for the backend —
-the actual step-by-step (Render dashboard clicks, Neon project setup,
-DNS records, etc.) is being written separately.
+The full deployment walkthrough — Neon project, Render web service,
+Vercel frontend import, env vars for each, migrations, admin bootstrap,
+and the deploy-time dictionary snapshot — is in the repo-root
+[`README.md`](../../README.md#deployment-instructions). This doc stays as
+the backend-specific reference:
 
-Future plans the user mentioned:
-- Maybe a "edit when you launch" desktop application that prompts for
-  names, tags, deployment config — would replace the manual env-var
-  setup with a wizard. That's a future project, not a current feature.
-
-For now, see:
 - [configuration.md](configuration.md) — every env var
 - [email.md](email.md) — SMTP provider setup
 - [getting-started.md](getting-started.md) — local setup (most of
   which mirrors prod setup)
-- The repo root — for the upcoming dedicated deployment guide
+
+One backend change worth knowing when deploying the frontend: the
+frontend's build snapshots `GET /api/export/dictionary` — keep the API
+service up when redeploying Vercel, or the frontend will keep its previous
+snapshot (by design; the build still succeeds).

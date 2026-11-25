@@ -170,9 +170,14 @@ const activeDescendant = computed(() =>
   activeIndex.value >= 0 ? `search-item-${activeIndex.value}` : undefined,
 )
 
-// ── Debounced fetch ───────────────────────────────────────────────────────
+// ── Debounced search ──────────────────────────────────────────────────────
+// Static-first: the dropdown searches the deploy-time snapshot
+// (/dictionary/words.json) in the browser — no /api/search call per
+// keystroke. The composable transparently falls back to the live API if
+// the snapshot failed to load.
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let lastRequestId = 0
+const dict = useDictionary()
 
 async function fetchResults(q: string) {
   const trimmed = q.trim()
@@ -184,7 +189,7 @@ async function fetchResults(q: string) {
   loading.value = true
   const reqId = ++lastRequestId
   try {
-    const data = await searchWords(trimmed, 10)
+    const data = await dict.search(trimmed, 10)
     // Drop stale responses — only the latest request's results matter
     if (reqId === lastRequestId) {
       results.value = data.items || []

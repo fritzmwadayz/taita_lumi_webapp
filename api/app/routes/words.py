@@ -5,6 +5,10 @@
   GET   /api/search?q=             — fuzzy search using pg_trgm
   POST  /api/words                 — reviewer+ creates a live word directly
   PATCH /api/words/{id}            — reviewer+ edits a word's fields
+  POST  /api/words/{id}/relations  — reviewer+ adds a variation/relationship
+                                     directly (resolves or creates the related
+                                     word in one step; powers the "Add directly"
+                                     toggle on the word page's variant form)
 """
 
 from __future__ import annotations
@@ -13,8 +17,8 @@ import re
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, or_, select, text
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -484,6 +488,14 @@ async def list_words(
     dialect: str | None = Query(None, description="Filter by dialect"),
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     size: int = Query(20, ge=1, le=100, description="Page size (max 100)"),
+    include_relations: bool = Query(
+        True,
+        description=(
+            "Compute the has_relations flag for each item. Set false for a "
+            "cheap list (skips two relation-existence queries) — the homepage "
+            "list sends include_relations=false."
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """List words with optional filters and pagination.
@@ -530,8 +542,14 @@ async def list_words(
     words = result.scalars().unique().all()
 
     # ── Batch-check which words have relations (1 query, not N) ─
+    # Skipped entirely when include_relations=False (e.g. the homepage list):
+    # the two relation-existence queries are pure overhead there, and every
+    # item gets has_relations=False. Callers that render the flag (review
+    # triage) don't send the param and keep the default (True).
     word_ids = [w.id for w in words]
-    words_with_relations = await _batch_has_relations(db, word_ids)
+    words_with_relations = (
+        await _batch_has_relations(db, word_ids) if include_relations else set()
+    )
 
     # ── Build response items ──────────────────────────────────
     items: list[WordListItem] = []
@@ -1284,6 +1302,270 @@ async def edit_sense(
     result = await db.execute(
         select(Word)
         .where(Word.id == sense.word_id)
+        .options(
+            selectinload(Word.translations),
+            selectinload(Word.examples),
+        )
+    )
+    word = result.scalar_one()
+
+    detail = _build_word_detail(word)
+    detail = await _populate_relations(db, detail, word.id)
+    return detail
+
+
+# ═══════════════════════════════════════════════════════════════
+# POST /api/words/{id}/relations — reviewer+ adds a variation or
+# relationship directly (no suggestion queue)
+# ═══════════════════════════════════════════════════════════════
+
+
+# Types that map to a WordVariation row; everything else becomes a
+# WordRelationship row. Mirrors the variation_type / relationship_type
+# docs in app/schemas.py.
+VARIATION_TYPES = {"variant", "plural", "singular", "conjugation", "diminutive", "augmentative"}
+RELATIONSHIP_TYPES = {"antonym", "synonym", "see_also", "derived", "etymological"}
+KNOWN_RELATION_TYPES = VARIATION_TYPES | RELATIONSHIP_TYPES
+DEFAULT_RELATION_TYPE = "variant"
+
+
+class CreateRelationRequest(BaseModel):
+    """Request body for POST /api/words/:id/relations — reviewer+ adds a
+    variation/relationship directly, from the word page's "Add a variant"
+    form ("Add directly" mode).
+
+    `related_word` is resolved by normalized headword: an existing live word
+    is reused; a missing one is created with the word-creation fields the
+    form already collects (same defaults as POST /api/words) and linked in
+    the same transaction. Re-linking an existing pair + type is idempotent
+    (200, no duplicate row) so double-submits and two reviewers racing are
+    safe.
+    """
+
+    related_word: str = Field(..., min_length=1, max_length=200)
+    relation_type: str | None = Field(None, max_length=50)
+    part_of_speech: str | None = Field(None, max_length=50)
+    noun_class: str | None = Field(None, max_length=50)
+    dialect: str | None = Field(None, max_length=50)
+    swahili_translation: str | None = Field(None, max_length=200)
+    english_translation: str | None = Field(None, max_length=200)
+    literal_translation: str | None = Field(None, max_length=500)
+
+
+@router.post("/words/{word_id}/relations", response_model=WordDetail, status_code=201)
+async def add_relation_to_word(
+    word_id: UUID,
+    req: CreateRelationRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_reviewer),
+):
+    """Add a variation/relationship to a word directly. Reviewer+ only.
+
+    Resolves `related_word` (creates it if missing), links it to the target
+    word, writes the audit log and returns the target word's full detail
+    (relations populated) so the frontend can swap it in directly.
+
+    `relation_type` defaults to 'variant'. Values in VARIATION_TYPES create
+    a WordVariation row; the rest create a WordRelationship row with
+    direction='bidirectional'.
+
+    Returns 201 when a link was created, 200 when the pair + type already
+    existed (idempotent re-submit).
+    """
+    # ── Fetch the target word ─────────────────────────────────
+    result = await db.execute(select(Word).where(Word.id == word_id))
+    word = result.scalar_one_or_none()
+    if word is None:
+        raise HTTPException(status_code=404, detail="Word not found")
+
+    # ── Validate the relation type ────────────────────────────
+    relation_type = (req.relation_type or DEFAULT_RELATION_TYPE).strip().lower()
+    if relation_type not in KNOWN_RELATION_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown relation_type: '{relation_type}'.",
+        )
+
+    # ── Resolve or create the related word ────────────────────
+    headword = req.related_word.strip()
+    normalized = _normalize_form(headword)
+    if not normalized:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Related word must contain at least one letter.",
+        )
+
+    related_result = await db.execute(
+        select(Word).where(Word.normalized_form == normalized, Word.status == "live")
+    )
+    related = related_result.scalar_one_or_none()
+    related_created = False
+
+    if related is None:
+        # Same creation path as POST /api/words: word + default sense +
+        # optional translations + audit + accepted-suggestion provenance.
+        slug = await generate_unique_slug(db, headword)
+        related = Word(
+            headword=headword,
+            normalized_form=normalized,
+            slug=slug,
+            part_of_speech=req.part_of_speech,
+            noun_class=req.noun_class,
+            dialect=req.dialect,
+            literal_translation=req.literal_translation,
+            status="live",
+            source="user",
+            created_by_user_id=current_user.id,
+        )
+        db.add(related)
+        await db.flush()  # populate related.id
+
+        default_sense = Sense(
+            word_id=related.id,
+            order_index=1,
+            created_by_user_id=current_user.id,
+        )
+        db.add(default_sense)
+        await db.flush()  # populate default_sense.id
+
+        if req.swahili_translation:
+            db.add(Translation(
+                word_id=related.id, sense_id=default_sense.id,
+                language="sw", text=req.swahili_translation.strip(),
+            ))
+        if req.english_translation:
+            db.add(Translation(
+                word_id=related.id, sense_id=default_sense.id,
+                language="en", text=req.english_translation.strip(),
+            ))
+
+        db.add(
+            EditLog(
+                actor_user_id=current_user.id,
+                action="create",
+                entity_type="word",
+                entity_id=related.id,
+                after={
+                    "headword": related.headword,
+                    "slug": related.slug,
+                    "source": "relation_direct_add",
+                    "by_user": current_user.email,
+                },
+            )
+        )
+        db.add(
+            Suggestion(
+                target_type="new_word",
+                target_id=related.id,
+                proposed_value={
+                    "headword": headword,
+                    "part_of_speech": req.part_of_speech,
+                    "noun_class": req.noun_class,
+                    "dialect": req.dialect,
+                    "literal_translation": req.literal_translation,
+                    "swahili_translation": req.swahili_translation,
+                    "english_translation": req.english_translation,
+                    "created_via": "relation_direct_add",
+                    "related_to_word_id": str(word.id),
+                },
+                rationale=None,
+                status="accepted",
+                created_by_user_id=current_user.id,
+                decided_at=datetime.now(timezone.utc),
+                decided_by_user_id=current_user.id,
+                applied_at=datetime.now(timezone.utc),
+            )
+        )
+        related_created = True
+
+    # ── Self-relation guard ───────────────────────────────────
+    if related.id == word.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A word cannot be related to itself.",
+        )
+
+    # ── Create the link row (idempotent) ──────────────────────
+    # Check both directions: variations are symmetric, and a reviewer may
+    # have added the same link from the other word's page already.
+    if relation_type in VARIATION_TYPES:
+        dup_result = await db.execute(
+            select(WordVariation).where(
+                WordVariation.variation_type == relation_type,
+                or_(
+                    and_(
+                        WordVariation.word_id == word.id,
+                        WordVariation.other_word_id == related.id,
+                    ),
+                    and_(
+                        WordVariation.word_id == related.id,
+                        WordVariation.other_word_id == word.id,
+                    ),
+                ),
+            )
+        )
+    else:
+        dup_result = await db.execute(
+            select(WordRelationship).where(
+                WordRelationship.relationship_type == relation_type,
+                or_(
+                    and_(
+                        WordRelationship.word_id == word.id,
+                        WordRelationship.other_word_id == related.id,
+                    ),
+                    and_(
+                        WordRelationship.word_id == related.id,
+                        WordRelationship.other_word_id == word.id,
+                    ),
+                ),
+            )
+        )
+
+    if dup_result.scalar_one_or_none() is not None:
+        # Already linked — treat as success (200), no duplicate row, no audit.
+        response.status_code = status.HTTP_200_OK
+    else:
+        if relation_type in VARIATION_TYPES:
+            db.add(WordVariation(
+                word_id=word.id,
+                other_word_id=related.id,
+                variation_type=relation_type,
+            ))
+            audit_entity = "variation"
+        else:
+            db.add(WordRelationship(
+                word_id=word.id,
+                other_word_id=related.id,
+                relationship_type=relation_type,
+                direction="bidirectional",
+                note=None,
+            ))
+            audit_entity = "relationship"
+
+        db.add(
+            EditLog(
+                actor_user_id=current_user.id,
+                action="create",
+                entity_type=audit_entity,
+                entity_id=word.id,
+                after={
+                    "relation_type": relation_type,
+                    "other_word_id": str(related.id),
+                    "other_headword": related.headword,
+                    "related_word_created": related_created,
+                    "source": "direct_add",
+                    "by_user": current_user.email,
+                },
+            )
+        )
+
+        await db.commit()
+
+    # ── Return the target word's full detail ──────────────────
+    result = await db.execute(
+        select(Word)
+        .where(Word.id == word_id)
         .options(
             selectinload(Word.translations),
             selectinload(Word.examples),

@@ -33,11 +33,14 @@
         <h1 v-if="suggestion.target_type === 'new_word'" class="font-serif text-3xl md:text-5xl text-forest-dark font-semibold mb-4">
           {{ (suggestion.proposed_value as Record<string, unknown>).headword }}
         </h1>
-        <h1 v-else class="font-serif text-3xl text-forest-dark mb-4">Update: {{ suggestion.field_path }}</h1>
+        <h1 v-else class="font-serif text-3xl text-forest-dark mb-4">{{ headingText }}</h1>
 
         <p class="text-sm text-stone">
           Proposed by <span class="font-medium text-ink">{{ suggestion.author_display || 'anonymous' }}</span>
           · {{ formatDate(suggestion.created_at) }}
+          <template v-if="targetWord">
+            · <NuxtLink :to="`/words/${targetWord.slug || targetWord.id}`" class="text-forest hover:underline font-medium">View “{{ targetWord.headword }}” →</NuxtLink>
+          </template>
         </p>
       </header>
 
@@ -58,6 +61,25 @@
           <div v-if="(suggestion.proposed_value as Record<string, unknown>).part_of_speech"><p class="text-[10px] uppercase tracking-wider text-stone-light mb-1">Part of speech</p><p class="text-ink">{{ (suggestion.proposed_value as Record<string, unknown>).part_of_speech }}</p></div>
           <div v-if="(suggestion.proposed_value as Record<string, unknown>).dialect"><p class="text-[10px] uppercase tracking-wider text-stone-light mb-1">Dialect</p><p class="text-ink">{{ (suggestion.proposed_value as Record<string, unknown>).dialect }}</p></div>
         </div>
+      </section>
+
+      <!-- Proposed change for EVERY other target type: type-aware rendering,
+           with a current → proposed diff where the suggestion edits an
+           existing word field (current value enriched from the word page). -->
+      <section v-else class="py-8 border-b border-cream-200">
+        <h2 class="text-xs font-semibold uppercase tracking-widest text-stone mb-6">Proposed change</h2>
+        <SuggestionChange
+          variant="full"
+          :target-type="suggestion.target_type"
+          :field-path="suggestion.field_path"
+          :proposed-value="suggestion.proposed_value"
+          :target-id="suggestion.target_id"
+          :current-word="targetWord"
+        />
+        <p v-if="targetWordFailed" class="text-xs text-stone-light mt-3">
+          The word's current value couldn't be loaded, so only the proposed value is shown above.
+          <NuxtLink v-if="suggestion.target_id" :to="`/words/${suggestion.target_id}`" class="text-forest hover:underline font-medium">Open the word →</NuxtLink>
+        </p>
       </section>
 
       <!-- Rationale -->
@@ -122,8 +144,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import type { SuggestionListItem } from '~/types'
+import { computed, ref, watch } from 'vue'
+import type { SuggestionListItem, WordDetail } from '~/types'
 
 // ── SEO ───────────────────────────────────────────────────────────────────
 // Suggestion pages are community process pages, not content landing pages.
@@ -137,6 +159,28 @@ const { isAuthenticated, isReviewer, user } = useAuth()
 const { data: suggestion, pending, error, refresh } = await useFetch<SuggestionListItem>(
   () => `/api/suggestions/${route.params.id}`,
   { watch: [() => route.params.id] },
+)
+
+// ── Target-word enrichment (current value for the before → after diff) ────
+// For non-new_word suggestions we fetch the targeted word's public detail so
+// the page can render the current value next to the proposed one. Failures
+// degrade gracefully: the proposed value renders alone, with a note.
+const targetWord = ref<WordDetail | null>(null)
+const targetWordFailed = ref(false)
+
+watch(() => suggestion.value?.target_id, (id) => {
+  targetWord.value = null
+  targetWordFailed.value = false
+  const s = suggestion.value
+  if (!s || s.target_type === 'new_word' || !id) return
+  getWord(id)
+    .then((w) => { if (suggestion.value?.target_id === id) targetWord.value = w })
+    .catch(() => { if (suggestion.value?.target_id === id) targetWordFailed.value = true })
+}, { immediate: true })
+
+// Type-aware H1 ("Correction: Swahili translation on "kilima"").
+const headingText = computed(() =>
+  suggestion.value ? suggestionHeading(suggestion.value, targetWord.value?.headword ?? null) : '',
 )
 
 const voting = ref(false)

@@ -105,7 +105,7 @@
       <div :class="searchMode ? 'col-span-12 md:col-span-9' : 'col-span-9'">
         <div class="flex items-center justify-between mb-4">
           <p class="text-xs text-stone">
-            <span v-if="pending">Searching...</span>
+            <span v-if="dictLoading">Searching...</span>
             <span v-else>
               <span class="font-semibold text-ink">{{ total }}</span>
               {{ total === 1 ? 'word' : 'words' }}
@@ -118,19 +118,13 @@
           </div>
         </div>
 
-        <!-- Loading (skeletons) -->
-        <div v-if="pending" class="grid grid-cols-1 md:grid-cols-2 gap-3" aria-busy="true">
+        <!-- Loading (skeletons) — only while the static index loads -->
+        <div v-if="dictLoading" class="grid grid-cols-1 md:grid-cols-2 gap-3" aria-busy="true">
           <div v-for="i in 6" :key="i" class="bg-cream-50 border border-cream-200 rounded-xl p-4">
             <UiSkeleton height="1.25rem" width="33%" class="rounded mb-2" />
             <UiSkeleton height="0.875rem" width="66%" class="rounded mb-1" />
             <UiSkeleton height="0.75rem" width="50%" class="rounded" />
           </div>
-        </div>
-
-        <!-- Error -->
-        <div v-else-if="error" class="bg-cream-100 border border-cream-200 rounded-xl p-6 text-sm text-stone">
-          <p class="font-medium text-terracotta mb-1">Couldn't load results</p>
-          <p class="text-xs text-stone-light">{{ error.message }}</p>
         </div>
 
         <!-- Empty -->
@@ -155,19 +149,15 @@
           />
         </div>
 
-        <!-- Search mode: no pagination (backend caps at 50) -->
-        <div v-if="!pending && searchMode && words.length > 0" class="mt-4 bg-cream-100 border border-cream-200 rounded-lg p-2.5 text-[10px] text-stone-light text-center">
-          Showing {{ words.length }} of {{ total }} match{{ total === 1 ? '' : 'es' }} · /api/search returns up to 50 — no pagination
+        <!-- Search mode: no pagination (matches are capped at 50) -->
+        <div v-if="!dictLoading && searchMode && words.length > 0" class="mt-4 bg-cream-100 border border-cream-200 rounded-lg p-2.5 text-[10px] text-stone-light text-center">
+          Showing {{ words.length }} of {{ total }} match{{ total === 1 ? '' : 'es' }} · search returns up to 50 — no pagination
         </div>
 
         <!-- Load more — browse mode only -->
-        <div v-if="!searchMode && hasMore" class="mt-6 text-center">
-          <button
-            :disabled="loadingMore"
-            class="focus-ring btn btn-secondary btn-md"
-            @click="loadMore"
-          >
-            {{ loadingMore ? 'Loading...' : 'Load more' }}
+        <div v-if="!searchMode && hasMore && !dictLoading" class="mt-6 text-center">
+          <button class="focus-ring btn btn-secondary btn-md" @click="loadMore">
+            Load more
           </button>
           <p class="text-[10px] text-stone-light mt-2">
             Showing {{ words.length }} of {{ total }}
@@ -181,6 +171,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import type { SearchResultItem, WordListItem } from '~/types'
+import { dictSearch } from '~/utils/dictSearch'
 
 // ── SEO ───────────────────────────────────────────────────────────────────
 useSiteSeo({
@@ -203,7 +194,6 @@ const debouncedQuery = ref(searchQuery.value)
 const page = ref(1)
 const pageSize = 20
 const SEARCH_LIMIT = 50
-const loadingMore = ref(false)
 const allWords = ref<Array<WordListItem | SearchResultItem>>([])
 
 const filters = reactive({
@@ -220,52 +210,53 @@ const posOptions = [
 
 const dialectOptions = ['Dawida', 'Sagala', 'Kasighau']
 
-// ── Mode: search (q non-empty → /api/search) vs browse (q empty → /api/words) ──
+// ── Mode: search (q non-empty → client-side trigram search over the static
+// index) vs browse (q empty → static words.json list, filtered + paginated
+// client-side). Both paths are zero-backend for anonymous traffic — the
+// snapshot in /dictionary/words.json is generated at deploy time
+// (scripts/export-dictionary.mjs). The composable falls back to the live
+// API when the snapshot is missing.
+const dict = useDictionary()
 const searchMode = computed(() => !!debouncedQuery.value.trim())
+const dictLoading = computed(() => !dict.ready.value && !dict.loadFailed.value)
 
-// ── Data fetching ──────────────────────────────────────────────────────────
-// URL and params switch based on mode. /api/search returns SearchResultItem[]
-// (with similarity); /api/words returns WordListItem[] (paginated).
-const fetchUrl = computed(() => searchMode.value ? '/api/search' : '/api/words')
-
-const fetchParams = computed(() => {
-  if (searchMode.value) {
-    return { q: debouncedQuery.value.trim(), limit: SEARCH_LIMIT }
-  }
-  return {
-    page: page.value,
-    size: pageSize,
-    ...(filters.pos ? { pos: filters.pos } : {}),
-    ...(filters.dialect ? { dialect: filters.dialect } : {}),
-  }
-})
-
-const { data, pending, error, refresh } = await useFetch<
-  | { items: WordListItem[]; total: number; page: number; size: number; has_next: boolean }
-  | { items: SearchResultItem[]; total: number; query: string }
->(fetchUrl, {
-  params: fetchParams,
-  watch: false, // we control refresh manually (debounced)
-})
-
-// Normalised results — handles both response shapes
+// ── Results (computed, not fetched) ───────────────────────────────────────
+// Browse mode: filter the static index by pos/dialect, "Load more" pages
+// client-side. Search mode: pg_trgm-parity ranking (dictSearch).
 const words = computed<Array<WordListItem | SearchResultItem>>(() => {
-  const items = (data.value?.items || []) as Array<WordListItem | SearchResultItem>
-  // Browse mode: page 1 replaces, page 2+ appends. Search mode: single fetch, no pagination.
-  if (searchMode.value) return items
-  return page.value === 1 ? items : [...allWords.value, ...items]
+  if (searchMode.value) {
+    return dictSearch(rows(), debouncedQuery.value.trim(), SEARCH_LIMIT).items
+  }
+  const filtered = dict.words.value.filter(matchesFilters)
+  // Page 1 replaces, page 2+ appends — same UX as the paginated API.
+  return page.value === 1 ? filtered : [...allWords.value, ...filtered]
 })
 
-const total = computed(() => data.value?.total || 0)
-const hasMore = computed(() =>
-  !searchMode.value && (data.value as { has_next?: boolean } | undefined)?.has_next === true,
+const total = computed(() =>
+  searchMode.value
+    ? dictSearch(rows(), debouncedQuery.value.trim(), SEARCH_LIMIT).total
+    : dict.words.value.filter(matchesFilters).length,
 )
 
+const hasMore = computed(() =>
+  !searchMode.value && page.value * pageSize < total.value,
+)
+
+function matchesFilters(w: WordListItem): boolean {
+  if (filters.pos && w.part_of_speech !== filters.pos) return false
+  if (filters.dialect && w.dialect !== filters.dialect) return false
+  return true
+}
+
 // ── Search triggers ────────────────────────────────────────────────────────
-// SearchBar v-model updates searchQuery immediately. We debounce the
-// debouncedQuery ref so the actual fetch waits 250ms (matches SearchBar's own
-// dropdown debounce — feels consistent).
+// SearchBar v-model updates searchQuery immediately; debouncedQuery mirrors
+// it on a 250ms debounce so ranking doesn't run on every keystroke.
 let searchDebounce: ReturnType<typeof setTimeout> | null = null
+
+// Lazy search rows — the composable builds trigram sets once the index loads.
+function rows() {
+  return dict.rows.value
+}
 
 // Watch searchQuery (which SearchBar updates) → debounce → run search
 watch(searchQuery, (val) => {
@@ -280,7 +271,7 @@ function runSearch(q?: string) {
   // SearchBar emits 'submit' with the query string — update both refs
   // synchronously so the URL/mode switch happens immediately (not after
   // the 250ms typing debounce). Also cancel any pending debounce so we
-  // don't double-fetch.
+  // don't re-run the search twice.
   if (typeof q === 'string') {
     if (q !== searchQuery.value) searchQuery.value = q
     debouncedQuery.value = q
@@ -292,7 +283,8 @@ function runSearch(q?: string) {
   page.value = 1
   allWords.value = []
   if (debouncedQuery.value.trim()) add(debouncedQuery.value.trim())
-  refresh()
+  // Results are computed — no fetch to trigger; ensureLoaded() runs once
+  // in the composable and the computed re-evaluates when the index lands.
 }
 
 function applyRecent(q: string) {
@@ -306,15 +298,12 @@ function goToWord(item: SearchResultItem) {
   router.push(`/words/${item.slug}`)
 }
 
-// ── Load more — browse mode only ───────────────────────────────────────────
-async function loadMore() {
+// ── Load more — browse mode only (client-side pagination) ─────────────────
+function loadMore() {
   if (searchMode.value) return
-  loadingMore.value = true
-  // Save current items before fetching next page
-  allWords.value = words.value
+  // Save current items before paging (the computed appends from page 2 on).
+  allWords.value = words.value as Array<WordListItem | SearchResultItem>
   page.value++
-  await refresh()
-  loadingMore.value = false
 }
 
 // ── Clear actions ──────────────────────────────────────────────────────────
@@ -323,7 +312,6 @@ function clearSearch() {
   debouncedQuery.value = ''
   page.value = 1
   allWords.value = []
-  refresh()
 }
 
 function clearFilters() {
@@ -350,11 +338,4 @@ watch(
     router.replace({ path: '/search', query })
   },
 )
-
-// On mount, if there's an initial q from the URL, fire the first search
-onMounted(() => {
-  if (debouncedQuery.value.trim()) {
-    refresh()
-  }
-})
 </script>

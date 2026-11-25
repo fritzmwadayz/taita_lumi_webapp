@@ -333,6 +333,78 @@ curl 'http://localhost:8000/api/search?q=kuja&size=5'
 }
 ```
 
+
+### `GET /api/export/dictionary`
+
+The bulk static-snapshot dump. One response with every live word as a full
+`WordDetail` plus the compact list index — the data the frontend snapshots
+at deploy time (`web/scripts/export-dictionary.mjs`) so anonymous traffic is
+served statically. **none** auth (it exposes nothing the public word
+endpoints don't already expose). No pagination by design.
+
+See [docs/architecture.md](architecture.md) for how the frontend consumes
+it, and the repo-root README for the deploy flow.
+
+**Example:**
+```bash
+curl 'http://localhost:8000/api/export/dictionary' -o dictionary.json
+```
+
+**Response (200):**
+```json
+{
+  "exported_at": "2026-11-25T10:41:13.023Z",
+  "total": 2,
+  "words": [
+    {
+      "id": "word-uuid",
+      "slug": "mlima",
+      "headword": "Mlima",
+      "part_of_speech": "noun",
+      "noun_class": null,
+      "dialect": "Dawida",
+      "literal_translation": null,
+      "morphology_notes": null,
+      "status": "active",
+      "created_at": "2026-11-07T10:00:00+00:00",
+      "translations": [
+        { "language": "sw", "text": "mlima, kilima" },
+        { "language": "en", "text": "mountain, hill" }
+      ],
+      "examples": [],
+      "variations": [
+        {
+          "other_word_id": "word-uuid-2",
+          "other_headword": "Milima",
+          "other_slug": "milima",
+          "variation_type": "plural"
+        }
+      ],
+      "relationships": [],
+      "senses": [],
+      "relations": []
+    }
+  ],
+  "list": [
+    {
+      "id": "word-uuid",
+      "slug": "mlima",
+      "headword": "Mlima",
+      "part_of_speech": "noun",
+      "noun_class": null,
+      "dialect": "Dawida",
+      "swahili_translation": "mlima, kilima",
+      "english_translation": "mountain, hill",
+      "has_relations": true
+    }
+  ]
+}
+```
+
+`words[]` elements match the `GET /api/words/{slug_or_id}` response shape
+exactly; `list[]` elements match `GET /api/words` items. The whole dump is
+assembled in ~6 queries regardless of dictionary size.
+
 ---
 
 ## Auth

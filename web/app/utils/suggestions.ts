@@ -3,6 +3,7 @@
 
 import type {
   SuggestionListResponse,
+  SuggestionListItem,
   VoteResponse,
   DecideResponse,
 } from '~/types'
@@ -62,4 +63,67 @@ export async function decideSuggestion(
     method: 'POST',
     body: { decision },
   })
+}
+
+// ── Display helpers (shared by review pages + SuggestionChange) ───────────
+
+// Legacy v1.3 aliases → the fields they actually mean.
+const FIELD_LABELS: Record<string, string> = {
+  headword: 'Headword',
+  part_of_speech: 'Part of speech',
+  noun_class: 'Noun class',
+  dialect: 'Dialect',
+  literal_translation: 'Literal translation',
+  morphology_notes: 'Morphology notes',
+  swahili_translation: 'Swahili translation',
+  english_translation: 'English translation',
+  swahili_gloss: 'Swahili translation',
+  english_gloss: 'English translation',
+  gloss: 'Translation',
+  definition: 'Definition',
+  notes: 'Notes',
+}
+
+/** Humanize a suggestion field_path (normalizes legacy gloss aliases). */
+export function suggestionFieldLabel(path: string | null | undefined): string {
+  if (!path) return ''
+  return FIELD_LABELS[path.toLowerCase()] || path
+}
+
+// Types that map to a Variation row (vs. a Relationship row on the backend).
+const VARIANT_TYPES = new Set(['variant', 'plural', 'singular', 'conjugation', 'diminutive', 'augmentative'])
+
+/**
+ * H1 heading for a suggestion detail page, per target type.
+ * `targetHeadword` (from enrichment, may be null) is included when known.
+ */
+export function suggestionHeading(
+  s: Pick<SuggestionListItem, 'target_type' | 'field_path' | 'proposed_value'>,
+  targetHeadword?: string | null,
+): string {
+  const hw = targetHeadword ? ` on “${targetHeadword}”` : ''
+  switch (s.target_type) {
+    case 'new_word':
+      return (s.proposed_value as Record<string, unknown>)?.headword as string || 'New word'
+    case 'translation':
+    case 'gloss':
+      return `Translation update${hw}`
+    case 'word':
+      return `Correction: ${suggestionFieldLabel(s.field_path)}${hw}`
+    case 'example':
+    case 'new_example':
+      return targetHeadword ? `New example for “${targetHeadword}”` : 'New example'
+    case 'relation':
+    case 'variation':
+    case 'relationship': {
+      const rt = (s.proposed_value as Record<string, unknown>)?.relation_type
+      const label = typeof rt === 'string' && rt ? rt.replace(/_/g, ' ').toLowerCase() : 'variant'
+      if (VARIANT_TYPES.has(label)) {
+        return targetHeadword ? `New ${label} of “${targetHeadword}”` : `New ${label}`
+      }
+      return targetHeadword ? `New relation for “${targetHeadword}”` : 'New relation'
+    }
+    default:
+      return s.field_path ? `Update: ${suggestionFieldLabel(s.field_path)}` : 'Suggestion'
+  }
 }

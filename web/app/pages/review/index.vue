@@ -134,28 +134,21 @@
                 </p>
               </template>
 
-              <!-- Translation update -->
-              <template v-else-if="s.target_type === 'translation'">
-                <p class="text-sm text-ink mb-1">
-                  Update translation for
-                  <NuxtLink :to="`/words/${s.target_id}`" class="text-forest hover:underline font-medium">{{ s.field_path || 'word' }}</NuxtLink>
-                </p>
-                <p class="font-serif text-lg text-forest font-medium">{{ formatValue(s.proposed_value) }}</p>
-              </template>
-
-              <!-- Relation -->
-              <template v-else-if="s.target_type === 'relation'">
-                <p class="text-sm text-ink mb-1">
-                  Suggested relation for
-                  <NuxtLink :to="`/words/${s.target_id}`" class="text-forest hover:underline font-medium">word</NuxtLink>
-                </p>
-                <p class="text-sm text-ink-soft">{{ formatValue(s.proposed_value) }}</p>
-              </template>
-
-              <!-- Word correction -->
-              <template v-else-if="s.target_type === 'word'">
-                <p class="text-sm text-ink mb-1">Update {{ s.field_path }}</p>
-                <p class="font-serif text-base text-forest font-medium">{{ formatValue(s.proposed_value) }}</p>
+              <!-- All non-new_word suggestions: type-aware rendering via the
+                   shared component (headword line + current → proposed diff).
+                   Covers translation/gloss, relation/variation/relationship,
+                   word corrections, and examples — replaces the old partial
+                   per-type templates that rendered raw JSON for relations. -->
+              <template v-else>
+                <SuggestionChange
+                  variant="compact"
+                  show-target-line
+                  :target-type="s.target_type"
+                  :field-path="s.field_path"
+                  :proposed-value="s.proposed_value"
+                  :target-id="s.target_id"
+                  :current-word="s.target_id ? targetWords[s.target_id] : null"
+                />
               </template>
 
               <!-- Rationale -->
@@ -222,14 +215,30 @@
         <article
           v-for="s in corrections"
           :key="s.id"
-          class="bg-cream-50 border border-cream-200 rounded-xl p-4 flex items-center justify-between gap-4"
+          class="bg-cream-50 border border-cream-200 rounded-xl p-4 md:p-5 flex items-start justify-between gap-4 hover:border-forest/30 transition"
         >
           <div class="flex-1 min-w-0">
-            <p class="text-sm font-medium text-ink">{{ typeLabel(s) }}</p>
-            <p class="text-xs text-stone mt-0.5">{{ formatValue(s.proposed_value) }}</p>
-            <p class="text-[10px] text-stone-light mt-1">{{ timeAgo(s.created_at) }} · net: {{ s.upvotes - s.downvotes }}</p>
+            <p class="text-[10px] uppercase tracking-wider text-stone-light font-semibold">
+              {{ typeLabel(s) }}
+              <span class="font-normal normal-case tracking-normal">· {{ timeAgo(s.created_at) }}<template v-if="s.author_display"> · proposed by {{ s.author_display }}</template></span>
+            </p>
+            <!-- Type-aware change summary: target headword + current → proposed -->
+            <SuggestionChange
+              class="mt-1.5"
+              variant="compact"
+              show-target-line
+              :target-type="s.target_type"
+              :field-path="s.field_path"
+              :proposed-value="s.proposed_value"
+              :target-id="s.target_id"
+              :current-word="s.target_id ? targetWords[s.target_id] : null"
+            />
+            <!-- Author's rationale -->
+            <p v-if="s.rationale" class="text-xs text-stone mt-2 italic line-clamp-2">"{{ s.rationale }}"</p>
+            <p class="text-[10px] text-stone-light mt-1.5">▲ {{ s.upvotes }} ▼ {{ s.downvotes }} · net: {{ s.upvotes - s.downvotes }}</p>
           </div>
-          <div class="flex items-center gap-2 flex-shrink-0">
+          <div class="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+            <NuxtLink :to="`/suggestions/${s.id}`" class="focus-ring text-xs font-medium text-forest hover:underline">Detail →</NuxtLink>
             <NuxtLink v-if="s.target_id" :to="`/words/${s.target_id}`" class="focus-ring text-xs text-forest hover:underline">View word →</NuxtLink>
             <button :disabled="decidingId === s.id" class="focus-ring btn btn-primary btn-sm" @click="decide(s.id, 'accept')">Accept</button>
             <button :disabled="decidingId === s.id" class="focus-ring-terra btn btn-danger btn-sm" @click="decide(s.id, 'reject')">Reject</button>
@@ -369,7 +378,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import type { SuggestionListItem, WordListItem } from '~/types'
+import type { SuggestionListItem, WordDetail, WordListItem } from '~/types'
 import type { ExampleInput } from '~/utils/words'
 
 definePageMeta({
@@ -457,6 +466,27 @@ const corrections = computed(() =>
   queueItems.value.filter(s => s.target_type !== 'new_word' && s.status === 'open'),
 )
 const correctionsCount = computed(() => corrections.value.length)
+
+// ── Target-word enrichment (headword + current values for diffs) ──────────
+// Cards need to show WHICH word is being changed and (for field corrections)
+// its current value. Fetched lazily per distinct target_id and cached for the
+// session; failures are remembered so we don't retry in a loop and cards
+// degrade gracefully to the proposed value alone.
+//   undefined = not attempted · null = fetch failed · object = loaded
+const targetWords = ref<Record<string, WordDetail | null>>({})
+const attemptedWordIds = new Set<string>()
+
+watch(queueItems, (items) => {
+  for (const s of items) {
+    if (s.target_type === 'new_word' || !s.target_id) continue
+    if (attemptedWordIds.has(s.target_id)) continue
+    attemptedWordIds.add(s.target_id)
+    const id = s.target_id
+    getWord(id)
+      .then((w) => { targetWords.value[id] = w })
+      .catch(() => { targetWords.value[id] = null })
+  }
+}, { immediate: true })
 
 // ═══ ACCEPTED COUNT (for header stat) ═══
 const { data: acceptedData } = await useFetch('/api/suggestions', {
@@ -589,17 +619,6 @@ function typeLabel(s: SuggestionListItem): string {
     case 'relation': return 'Relation suggestion'
     default: return s.target_type
   }
-}
-
-function formatValue(proposed: unknown): string {
-  if (typeof proposed === 'string') return proposed
-  if (typeof proposed === 'object' && proposed !== null) {
-    const obj = proposed as Record<string, unknown>
-    if (obj.value) return String(obj.value)
-    if (obj.text) return String(obj.text)
-    if (obj.headword) return String(obj.headword)
-  }
-  return JSON.stringify(proposed)
 }
 
 function timeAgo(iso: string): string {

@@ -95,6 +95,21 @@ export interface EditSenseRequest {
   notes?: string | null
 }
 
+/** Body for POST /api/words/{word_id}/relations (reviewer+ direct add).
+ *  `related_word` is a headword: an existing word is reused, a missing one is
+ *  created with the optional word-creation fields provided. `relation_type`
+ *  defaults to 'variant' when omitted. */
+export interface CreateRelationRequest {
+  related_word: string                     // headword of the related/variant word
+  relation_type?: string | null            // variant | plural | singular | conjugation | antonym | synonym | see_also | derived | etymological
+  part_of_speech?: string | null           // applied when the related word must be created
+  noun_class?: string | null
+  dialect?: string | null
+  swahili_translation?: string | null
+  english_translation?: string | null
+  literal_translation?: string | null
+}
+
 /** Reviewer+ appends a single example to a word. Returns the updated word. */
 export async function addExample(
   wordId: string,
@@ -125,6 +140,19 @@ export async function editSense(
 ): Promise<WordDetail> {
   return await $fetch<WordDetail>(`/api/senses/${senseId}`, {
     method: 'PATCH',
+    body,
+  })
+}
+
+/** Reviewer+ adds a variation/relation to a word directly (no queue).
+ *  Resolves or creates the related word, links it, writes the audit log and
+ *  returns the updated parent word's full WordDetail (relations populated). */
+export async function createRelation(
+  wordId: string,
+  body: CreateRelationRequest,
+): Promise<WordDetail> {
+  return await $fetch<WordDetail>(`/api/words/${wordId}/relations`, {
+    method: 'POST',
     body,
   })
 }

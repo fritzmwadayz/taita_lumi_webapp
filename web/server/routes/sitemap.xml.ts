@@ -1,40 +1,23 @@
-// ── Lumi — dynamic sitemap.xml ───────────────────────────────────────────
+// ── Lumi — sitemap.xml from the static snapshot ────────────────────────────
 // GET /sitemap.xml
 //
-// Generates a sitemap listing:
-//   - Static public pages (/, /search, /contribute, /guide, /support, /contact)
-//   - All word detail pages (/words/<slug>) — fetched from FastAPI
+// Lists the static public pages plus every word detail page, reading the
+// slugs from public/dictionary/sitemap-words.xml (written at export time by
+// scripts/export-dictionary.mjs) — no backend call, no DB query. The
+// fragment's __BASE__ placeholder is substituted with this deployment's
+// origin at request time.
 //
 // Auth/admin/SPA pages are excluded (they're noindex anyway).
-// If the backend is down, the sitemap still serves the static pages.
 
-import type { WordListResponse } from '~/types'
+import { readFile } from 'node:fs/promises'
 
 export default defineEventHandler(async (event) => {
-  const config = useRuntimeConfig(event)
-  const apiBase = config.apiBase
-
   // ── Determine the site's base URL from request headers ─────────────────
-  // On Netlify, x-forwarded-proto is set to 'https' and host is the custom
-  // domain (or the netlify.app subdomain).
+  // Works on any deployment (Vercel, custom domain, localhost).
   const headers = getHeaders(event)
   const proto = headers['x-forwarded-proto'] || 'http'
   const host = headers['host'] || 'localhost:3000'
   const baseUrl = `${proto}://${host}`
-
-  // ── Fetch all word slugs from FastAPI ──────────────────────────────────
-  let wordSlugs: string[] = []
-  try {
-    const response = await $fetch<WordListResponse>(`${apiBase}/api/words`, {
-      query: { page: 1, size: 10000 },
-    })
-    wordSlugs = response.items
-      .map((w) => w.slug)
-      .filter((s): s is string => Boolean(s))
-  } catch (err) {
-    // Backend down — still serve the static-page sitemap
-    console.error('[sitemap] Failed to fetch words from backend:', err)
-  }
 
   // ── Static pages ───────────────────────────────────────────────────────
   const staticPages = [
@@ -46,7 +29,6 @@ export default defineEventHandler(async (event) => {
     { path: '/contact', changefreq: 'monthly', priority: '0.3' },
   ]
 
-  // ── Build XML ──────────────────────────────────────────────────────────
   const urls: string[] = []
 
   for (const page of staticPages) {
@@ -59,14 +41,18 @@ export default defineEventHandler(async (event) => {
     )
   }
 
-  for (const slug of wordSlugs) {
-    urls.push(
-      `  <url>
-    <loc>${baseUrl}/words/${slug}</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.7</priority>
-  </url>`,
-    )
+  // ── Word pages — from the export-time fragment (no backend call) ───────
+  let wordEntries = ''
+  try {
+    const fragment = await readFile('public/dictionary/sitemap-words.xml', 'utf8')
+    // First line is the __BASE__ placeholder line; replace per request.
+    wordEntries = fragment.replace('__BASE__PLACEHOLDER__', baseUrl)
+  } catch {
+    // No snapshot yet — serve the static-page-only sitemap.
+  }
+
+  if (wordEntries) {
+    urls.push(wordEntries)
   }
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>

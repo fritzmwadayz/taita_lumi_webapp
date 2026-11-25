@@ -8,6 +8,32 @@ covers feature additions and breaking changes, not refactor commits.
 
 Nothing staged yet.
 
+## [0.3.0] — 2026-11-25
+
+The "static dictionary" release, backend side. One new endpoint: the bulk
+export the frontend snapshots at deploy time so anonymous traffic never
+touches the API or the database. No DB migrations needed.
+
+### Added
+
+- `GET /api/export/dictionary` — the full static snapshot in one response:
+  every live word as a complete `WordDetail` (senses, sense-scoped
+  translations/examples, variations, relationships, legacy `relations`), the
+  compact list index (`WordListItem[]`), plus `exported_at` / `total`
+  envelope fields. **none** auth — it exposes nothing the public word
+  endpoints don't already expose.
+- `app/routes/export.py` — the assembler. Mirrors the per-word endpoint's
+  assembly exactly, batched: ~6 queries total for the whole dictionary
+  instead of N × 3 per-word queries.
+- `tests/test_export.py` — 3 tests (empty dictionary, envelope + list/detail
+  parity, sense-scoped translations/examples). Suite: 235 → 238 tests.
+
+See
+[docs/api-reference.md](api-reference.md#get-apidictionary-export--exportdictionary)
+for the response shape and
+[docs/architecture.md](architecture.md) for how the frontend consumes it
+(see the repo-root README's deployment section for the deploy flow).
+
 ## [0.2.0] — 2026-11-10
 
 The "auth additions" release. Adds password reset, profile management,

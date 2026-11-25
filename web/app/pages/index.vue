@@ -146,7 +146,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { SearchResultItem, WordListResponse, WordListItem } from '~/types'
+import type { SearchResultItem, WordListItem } from '~/types'
 
 // ── SEO ───────────────────────────────────────────────────────────────────
 useSiteSeo({
@@ -188,17 +188,23 @@ const todayLabel = computed(() =>
   new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
 )
 
-// ── Data: ONE fetch for recent words + word-of-the-day + total count ──────
-const { data: wordsData, pending, error } = await useFetch<WordListResponse>('/api/words', {
-  params: { size: 20, include_relations: false },
-})
+// ── Data: static dictionary snapshot (zero backend calls) ──────────────────
+// /dictionary/words.json is generated at deploy time (scripts/export-
+// dictionary.mjs). The snapshot's items are ordered by created_at DESC —
+// "recently added" is just the first 4 rows, and the word-of-the-day
+// rotation uses the same first-20 slice the old /api/words?size=20 call
+// returned. ensureLoaded() is awaited so prerender/SSR render real content.
+const dict = useDictionary()
+await dict.ensureLoaded()
+const pending = computed(() => !dict.ready.value && !dict.loadFailed.value)
+const error = computed(() => dict.loadFailed.value ? { message: 'Dictionary snapshot unavailable.' } : null)
 
-const recentWords = computed<WordListItem[]>(() => (wordsData.value?.items || []).slice(0, 4))
-const totalWords = computed(() => wordsData.value?.total || 0)
+const recentWords = computed<WordListItem[]>(() => dict.words.value.slice(0, 4))
+const totalWords = computed(() => dict.total.value || dict.words.value.length)
 
 // Word of the day — stable per day (indexed by day of year)
 const wordOfDay = computed<WordListItem | null>(() => {
-  const items = wordsData.value?.items
+  const items = dict.words.value
   if (!items?.length) return null
   const dayOfYear = Math.floor(
     (Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000,
