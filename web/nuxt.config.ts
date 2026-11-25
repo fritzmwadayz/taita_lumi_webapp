@@ -163,9 +163,14 @@ export default defineNuxtConfig({
   // ⚠️ Do NOT add nitro.devProxy — it intercepts /api/* before Nitro handlers
   // can run, bypassing auth and stripping the /api/ prefix.
   nitro: {
-    // Vercel's CI auto-detects and sets its preset; the explicit fallback is
-    // for local production builds/tests (node-server serves .output).
-    preset: process.env.NITRO_PRESET || 'node-server',
+    // Preset: intentionally UNSET. Nitro auto-detects the target — `vercel`
+    // on Vercel CI (VERCEL=1, producing .vercel/output/), `node-server`
+    // for local builds (.output/). Setting an explicit fallback here would
+    // OVERRIDE that detection and ship a node-server bundle to Vercel —
+    // which their builder then rejects ("No Output Directory named dist
+    // found"). Set NITRO_PRESET in the environment only when a special
+    // local build target is needed.
+    ...(process.env.NITRO_PRESET ? { preset: process.env.NITRO_PRESET } : {}),
 
     prerender: {
       // Crawl <NuxtLink> from pre-rendered pages to discover more routes
